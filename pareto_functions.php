@@ -3452,7 +3452,7 @@ class pareto_functions extends pareto_setup {
         $this->_set_error_level();
         # disable assert function in local scope
         # shouldn't be available to production websites
-        if (function_exists('ini_set') && false !== ini_get('assert.active')) {
+        if (PHP_VERSION_ID < 80300 && function_exists('ini_set') && false !== ini_get('assert.active')) {
             @ini_set('assert.active', '0');
         }
         # Send secure headers
