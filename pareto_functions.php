@@ -298,6 +298,7 @@ class pareto_functions extends pareto_setup {
         # only testing the last 10 timestamps.
         for ($x          = 0;$x <= 9;$x++) {
             $ts = $logfile[$x];
+            if (!is_string($ts)) continue;
             if (false !== is_numeric(trim(substr($ts, 0, 10)))) {
                 $ts = trim(substr($ts, 0, 10));
                 $ts = $this->updated($ts, $this->_time_offset);
