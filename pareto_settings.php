@@ -317,7 +317,8 @@ if ( class_exists( "pareto_functions" ) ):
                     $this->logs[ 0 ] = SETTINGS_INSTALL_LOG;
                     return;
             }
-            $final_log = strtolower( substr( $this->logs[ count( $this->logs ) - 1 ], 0, 50 ) );
+            $last_entry = $this->logs[ count( $this->logs ) - 1 ];
+            $final_log = ( is_string( $last_entry ) ) ? strtolower( substr( $last_entry, 0, 50 ) ) : '';
 
             # make sure install log remains
             #if ( count( $this->logs ) < 100 && false === strpos( $final_log, 'safe' ) ) {

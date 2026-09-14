@@ -254,6 +254,7 @@ class pareto_functions extends pareto_setup {
                 $x         = 0;
                 # count medium and high log entries
                 foreach ($logfile as $key       => $val) {
+                    if (!is_string($val)) continue;
                     $short_val = strtolower(substr($val, 0, 79));
                     if ((false !== strpos($short_val, "high") || false !== strpos($short_val, "medium")) && false === strpos($short_val, "[blocked]") && false === strpos($short_val, " safe ")) $x++;
                 }
