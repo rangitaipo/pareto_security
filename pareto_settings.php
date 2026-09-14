@@ -343,7 +343,7 @@ if ( class_exists( "pareto_functions" ) ):
          * @return void
          **/
         function admin_init() {
-            register_setting( $this->settings_field, $this->settings_field );
+            register_setting( $this->settings_field, $this->settings_field, array( 'default' => pareto_settings::$default_settings ) );
             register_setting( PARETO_LOG_LIST, PARETO_LOG_LIST );
             add_option( $this->settings_field, pareto_settings::$default_settings );
         }
