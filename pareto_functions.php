@@ -313,7 +313,7 @@ class pareto_functions extends pareto_setup {
             }
         }
         # 10 entries in 10 minutes = trigger lockdown mode
-        if (600 >= ( int )(time() - ( int )$timestamps[9])) {
+        if (600 >= ( int )(time() - ( int )end($timestamps))) {
             return true;
         }
         else {
@@ -3452,7 +3452,9 @@ class pareto_functions extends pareto_setup {
         $this->_set_error_level();
         # disable assert function in local scope
         # shouldn't be available to production websites
-        @ini_set('assert.active', '0');
+        if (function_exists('ini_set')) {
+            @ini_set('assert.active', '0');
+        }
         # Send secure headers
         $this->x_secure_headers();
 
