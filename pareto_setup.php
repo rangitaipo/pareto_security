@@ -34,10 +34,15 @@ class pareto_setup {
     public $ip_hash_list      = 'pareto_security_ip_flood_list';
     public $_trim_log_entry   = 450;
     public $_time_offset;
-    public $_adv_mode  = 0;
-    public $_safe_host = '';
-    public $_client_ip;
-    public $_silent_mode     = 0;
+	public $_adv_mode  = 0;
+	public $_safe_host = '';
+	public $_domain_list;
+	public $_client_ip;
+	public $_email_report = 0;
+	public $_admin_ip     = '';
+	public $_server_ip;
+	public $ip_count = 0;
+	public $_silent_mode     = 0;
     public static $default_settings = array(
         'advanced_mode'                  => 0,
         'ban_mode'                  => 0,
