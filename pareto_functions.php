@@ -143,8 +143,11 @@ class pareto_functions extends pareto_setup {
      */
     #[ReturnTypeWillChange]
     function karo($req = '', $t = false, $severity = '', $log_only = false, $safelist_url = '') {
+        if (!is_string($req)) $req = '';
+        if (!is_string($severity)) $severity = '';
         if (empty($this->options) || !isset($this->_disable_htaccess)) {
             $this->options           = get_option($this->settings_field);
+            if (!is_array($this->options)) $this->options = array();
             $this->_disable_htaccess = (isset($this->options['disable_htaccess']) ? $this->options['disable_htaccess'] : 0);
         }
         if ($this->cmpstr($severity, '')) {
@@ -244,6 +247,8 @@ class pareto_functions extends pareto_setup {
      */
     function write_log($req       = "", $req_orig  = "", $ban_type  = "") {
         $logfile   = array();
+        if (!is_string($req)) $req = '';
+        if (!is_string($ban_type)) $ban_type = '';
         $ban_type  = strtolower($ban_type);
         #if ( !defined( 'PARETO_LOG_LIST' ) ) define( 'PARETO_LOG_LIST', 'pareto_security_log_list' );
         $logfile   = get_option(PARETO_LOG_LIST);
@@ -267,9 +272,9 @@ class pareto_functions extends pareto_setup {
                     if (false !== ( bool )$this->_email_report && $x != 0 && false !== ctype_digit($logged_count)) {
                         $text_color   = ($this->cmpstr('Medium', $ban_type, true)) ? "#e68735" : "#c72b2c";
                         $this->email_log("\n<tr style=\"background-color: #F3F3F3\">\n" . "    <td style=\"font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;vertical-align:top; width:100px; white-space: nowrap\">" . $this->set_timestamp(time()) . "</td>\n
-                                                 <td style=\"vertical-align:top; text-align: center; width:70px; white-space: nowrap; font-size:11px;white-space:nowrap; font-family:Verdana,Tahoma,Arial,sans-serif;font-weight: bold; color:" . $text_color . "\">" . $ban_type . "</td>\n
+                                                 <td style=\"vertical-align:top; text-align: center; width:70px; white-space: nowrap; font-size:11px;white-space:nowrap; font-family:Verdana,Tahoma,Arial,sans-serif;font-weight: bold; color:" . $text_color . "\">" . $this->htmlentities_safe($ban_type) . "</td>\n
                                                  <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:140px; white-space: nowrap\">" . $this->htmlentities_safe($this->_client_ip) . "</td>\n
-                                                 <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:50px; white-space: nowrap\">" . $this->controlchar_filter($_SERVER['REQUEST_METHOD']) . "</td>\n
+                                                 <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:50px; white-space: nowrap\">" . $this->htmlentities_safe(isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '') . "</td>\n
                                                  <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:100px; white-space: nowrap\">" . $this->htmlentities_safe($this->get_filename()) . "</td>\n
                                                  <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;white-space: nowrap\">" . $req_orig . "</td>\n
                                             </tr>");
@@ -331,10 +336,12 @@ class pareto_functions extends pareto_setup {
         $req     = $this->htmlentities_decode_safe($req);
         $logfile = self::PARETO_LOGS . $this->_log_file;
         if (file_exists($logfile)) {
-            @chmod($logfile, 0666);
-            $fp = fopen($logfile, 'a');
-            fwrite($fp, $req);
-            fclose($fp);
+            @chmod($logfile, 0644);
+            $fp = @fopen($logfile, 'a');
+            if (false !== $fp) {
+                fwrite($fp, $req);
+                fclose($fp);
+            }
         }
     }
     /**
@@ -344,8 +351,14 @@ class pareto_functions extends pareto_setup {
      */
     function get_ulid() {
         $hash_string = ($this->is_wp()) ? $this->get_wp_key() : $this->get_uuid();
-        $ulid        = substr($this->cleanString(6, $this->do_bcrypt($hash_string, 12)) , -16);
-        return $ulid;
+        if (function_exists('wp_generate_uuid4')) {
+            $seed = wp_generate_uuid4();
+            if (!is_string($seed) || '' === $seed) $seed = uniqid('', true) . mt_rand() . mt_rand();
+        }
+        else {
+            $seed = uniqid('', true) . mt_rand() . mt_rand();
+        }
+        return substr(hash('sha256', $hash_string . $seed), 0, 16);
     }
     /**
      * Make log entry html safe
@@ -354,13 +367,18 @@ class pareto_functions extends pareto_setup {
      */
     function log_request($req      = '', $ban_type = '', $this_ip  = '') {
         #if ( false !== ( bool ) $this->_adv_mode || ( false === ( bool ) $this->_adv_mode && $ban_type != "Low" ) ) {
+        if (!is_string($req)) $req = '';
+        if (!is_string($ban_type)) $ban_type = '';
+        if (!is_string($this_ip)) $this_ip = '';
         if (false === $this->is_wp()) date_default_timezone_set('NZ');
+        # Redact common secrets from query strings before they reach logs/email.
+        $req      = $this->redact_query_secrets($req);
         $req      = (strlen($req) > $this->_trim_log_entry) ? substr($req, 0, $this->_trim_log_entry) . "..." : $req;
         $req      = $this->cleanString(11, $req); // remove control characters (being extra safe)
         $req      = str_replace("\\", "&bsol;", $req);
         $uuid     = $this->get_ulid();
         $req_orig = (strlen($req) > 250) ? wordwrap($req, 200, "<br />\n") : $req;
-        $req      = time() . " " . $ban_type . " " . $this_ip . " " . $this->controlchar_filter($_SERVER['REQUEST_METHOD']) . " " . $this->get_filename() . " " . str_replace(" ", "%20", $req) . " " . $uuid;
+        $req      = time() . " " . $ban_type . " " . $this_ip . " " . $this->controlchar_filter(isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : '') . " " . $this->get_filename() . " " . str_replace(" ", "%20", $req) . " " . $uuid;
         if (false !== $this->is_wp()) {
             $this->write_log($req, $req_orig, $ban_type);
         }
@@ -396,7 +414,8 @@ class pareto_functions extends pareto_setup {
     #[ReturnTypeWillChange]
     function logfile_name() {
         if (false !== $this->logfile_exists()) {
-            $key_array           = file(self::PARETO_LOGS . $this->_log_file_key);
+            $key_array           = @file(self::PARETO_LOGS . $this->_log_file_key);
+            if (!is_array($key_array) || !isset($key_array[0])) return false;
         }
         else return false;
         $filename = substr(hash('sha256', $key_array[0], false) , 0, 32) . "_request.log";
@@ -408,7 +427,8 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     function logfile_cleanup() {
-        $filelist    = scandir(self::PARETO_LOGS);
+        $filelist    = @scandir(self::PARETO_LOGS);
+        if (!is_array($filelist)) return;
         foreach ($filelist as $key         => $filename) {
             if (strlen($filename) > 20 && false === $this->cmpstr($filename, $this->_log_file, true) && $this->cmpstr('_request.log', substr($filename, -12, 12) , true)) {
                 $logfilename = self::PARETO_LOGS . $filename;
@@ -458,22 +478,28 @@ class pareto_functions extends pareto_setup {
         $crypto_key_file = self::PARETO_LOGS . $this->_log_file_key;
         $hash_string     = ($this->is_wp()) ? $this->get_wp_key() : $this->get_uuid();
         $key             = $this->do_bcrypt($hash_string, 12);
-        $fp              = fopen($crypto_key_file, 'w');
-        fwrite($fp, $key);
-        fclose($fp);
+        $fp              = @fopen($crypto_key_file, 'w');
+        if (false !== $fp) {
+            fwrite($fp, $key);
+            fclose($fp);
+        }
 
         $this->_log_file = $this->logfile_name();
 
         $logfile         = self::PARETO_LOGS . $this->_log_file;
         # Create logfile
-        $fp              = fopen($logfile, 'c');
-        fwrite($fp, "");
-        fclose($fp);
+        $fp              = @fopen($logfile, 'c');
+        if (false !== $fp) {
+            fwrite($fp, "");
+            fclose($fp);
+        }
 
         # Create HTACCESS
-        $fp = fopen(self::PARETO_LOGS . ".htaccess", 'w');
-        fwrite($fp, $htlog_content);
-        fclose($fp);
+        $fp = @fopen(self::PARETO_LOGS . ".htaccess", 'w');
+        if (false !== $fp) {
+            fwrite($fp, $htlog_content);
+            fclose($fp);
+        }
 
         # remove any older logs
         if (false !== $this->is_wp()) $this->logfile_cleanup();
@@ -490,15 +516,18 @@ class pareto_functions extends pareto_setup {
     function get_wp_key() {
         $token     = '';
         $key_vars  = array(
-            'AUTH_KEY'           => AUTH_KEY,
-            'SECURE_AUTH_KEY'           => SECURE_AUTH_KEY,
-            'NONCE_KEY'           => NONCE_KEY,
-            'AUTH_SALT'           => AUTH_SALT,
-            'SECURE_AUTH_SALT'           => SECURE_AUTH_SALT,
-            'NONCE_SALT'           => NONCE_SALT
+            'AUTH_KEY',
+            'SECURE_AUTH_KEY',
+            'NONCE_KEY',
+            'AUTH_SALT',
+            'SECURE_AUTH_SALT',
+            'NONCE_SALT'
         );
-        foreach ($key_vars as $const_key => $const_arg) {
-            if (defined($const_key) && strlen($const_arg) > 40) $token     = hash('sha256', $const_arg . $token, false);
+        foreach ($key_vars as $const_key) {
+            if (defined($const_key)) {
+                $const_arg = constant($const_key);
+                if (is_string($const_arg) && strlen($const_arg) > 40) $token = hash('sha256', $const_arg . $token, false);
+            }
         }
         return $token;
     }
@@ -537,8 +566,9 @@ class pareto_functions extends pareto_setup {
         $uuid        = '';
         while ($x < count($server_vars)) {
             if (isset($_get_server[$server_vars[$x]])) {
-                if (!$_get_server[$server_vars[$x]] == 'max-age=0') {
-                    $uuid        = hash('sha256', $_get_server[$server_vars[$x]] . $uuid, false);
+                $value = $_get_server[$server_vars[$x]];
+                if (is_scalar($value) && 'max-age=0' !== (string) $value) {
+                    $uuid        = hash('sha256', (string) $value . $uuid, false);
                 }
             }
             $x++;
@@ -577,21 +607,24 @@ class pareto_functions extends pareto_setup {
             $xml_lists       = ((false !== $this->is_wp()) ? plugin_dir_path(__FILE__) : dirname(__FILE__)) . "/xml/lists.xml";
             if (false !== $this->is_wp()) $this->_datalist = wp_cache_get('mylists');
             if (file_exists($xml_lists)) {
-                $xml             = simplexml_load_file($xml_lists);
-                $this->_datalist = array(
-                    1 => explode(',', preg_replace("/[\s]/i", "", $xml->get)) ,
-                    2 => explode(',', preg_replace("/[\s]/i", "", $xml->post)) ,
-                    3 => explode(',', preg_replace("/[\s]/i", "", $xml->bad_ua)) ,
-                    4 => explode(',', preg_replace("/[\s]/i", "", $xml->good_ua))
-                );
-                if (false !== $this->is_wp()) wp_cache_set('mylists', $this->_datalist, '', 10800);
+                $xml             = simplexml_load_file($xml_lists, 'SimpleXMLElement', LIBXML_NONET);
+                if (false !== $xml) {
+                    $this->_datalist = array(
+                        1 => explode(',', preg_replace("/[\s]/i", "", $xml->get)) ,
+                        2 => explode(',', preg_replace("/[\s]/i", "", $xml->post)) ,
+                        3 => explode(',', preg_replace("/[\s]/i", "", $xml->bad_ua)) ,
+                        4 => explode(',', preg_replace("/[\s]/i", "", $xml->good_ua))
+                    );
+                    if (false !== $this->is_wp()) wp_cache_set('mylists', $this->_datalist, '', 10800);
+                }
             }
         }
         if (false !== $injectors) {
             $xml_db           = ((false !== $this->is_wp()) ? plugin_dir_path(__FILE__) : dirname(__FILE__)) . "/xml/injectors.xml";
             if (false !== $this->is_wp()) $this->_injectors = wp_cache_get('myinjectors');
             if (file_exists($xml_db)) {
-                $xml              = simplexml_load_file($xml_db);
+                $xml              = simplexml_load_file($xml_db, 'SimpleXMLElement', LIBXML_NONET);
+                if (false === $xml) return;
                 $this->_injectors = array(
                     1 => preg_replace("/[\s]/i", "", $xml->vartrig) ,
                     2 => preg_replace("/[\s]/i", "", $xml->matchlist) ,
@@ -610,6 +643,9 @@ class pareto_functions extends pareto_setup {
      * @return bool True on success or false on failure.
      */
     function injectMatch($string     = '') {
+        if (!is_scalar($string)) return false;
+        $string     = (string) $string;
+        if (strlen($string) > $this->_max_scan_length) $string = substr($string, 0, $this->_max_scan_length);
         $string     = $this->url_decoder(strtolower($string));
 
         $matches1   = array();
@@ -776,6 +812,9 @@ class pareto_functions extends pareto_setup {
      * @return bool True on success or false on failure.
      */
     function datalist($val  = 0, $list = 0) {
+        if (!is_scalar($val)) return false;
+        $val  = (string) $val;
+        if (strlen($val) > $this->_max_scan_length) $val = substr($val, 0, $this->_max_scan_length);
         $val  = $this->cleanString(9, $val);
         if (!is_numeric($val) && empty($val)) return false;
         if (empty($this->_datalist) || !is_array($this->_datalist)) return false;
@@ -812,6 +851,11 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     function do_blacklists($input       = '', $list        = 0, $desc        = '', $bantype     = false, $severity    = "High", $log         = false, $reqmatch    = false, $injectmatch = false) {
+        if (!is_scalar($input)) $input = '';
+        $input       = (string) $input;
+        if (!is_string($desc)) $desc = '';
+        if (!is_string($severity)) $severity = 'High';
+        if (strlen($input) > $this->_max_scan_length) $input = substr($input, 0, $this->_max_scan_length);
         $input       = $this->controlchar_filter($input);
         if ($list > 0 && false !== $reqmatch && false !== ( bool )$this->datalist($input, $list)) $this->karo($desc . ": " . $this->htmlentities_safe($input) , $bantype, $severity, $log);
         if (false !== $injectmatch && false !== $this->injectMatch($input)) $this->karo("Injection " . $desc . ": " . $this->htmlentities_safe($input) , $bantype, $severity, $log);
@@ -953,7 +997,9 @@ class pareto_functions extends pareto_setup {
                             exit;
                         }
                         else {
-                            header("Location: " . $this->getURL());
+                            # Same-origin relative redirect only; never build a Location
+                            # header from the request URI or Host-derived values.
+                            header("Location: /");
                             exit();
                         }
                     }
@@ -1026,6 +1072,11 @@ class pareto_functions extends pareto_setup {
      */
     function querystring_filter($val = '', $key = '') {
         $key = $this->controlchar_filter($key);
+        # never copy credential/nonce values into attack logs/emails
+        if (preg_match('/pass|pwd|secret|token|api[_-]?key|nonce/i', $key)) return;
+        if (!is_scalar($val)) return;
+        $val = (string) $val;
+        if (strlen($val) > $this->_max_scan_length) $val = substr($val, 0, $this->_max_scan_length);
         $val = $this->controlchar_filter($val);
         $this->_get_all[]     = $this->decode_code($key, true);
         # log4shell attack
@@ -1064,6 +1115,11 @@ class pareto_functions extends pareto_setup {
     function post_filter($val = '', $key = '') {
         # filter control chars
         $key = $this->controlchar_filter($key);
+        # never copy credential-like field values into attack logs/emails
+        if (preg_match('/pass|pwd|secret|token|api[_-]?key|nonce/i', $key)) return;
+        if (!is_scalar($val)) return;
+        $val = (string) $val;
+        if (strlen($val) > $this->_max_scan_length) $val = substr($val, 0, $this->_max_scan_length);
         $val = $this->controlchar_filter($val);
         # catch attempts to insert malware
         if (false !== strpos($val, $this->htmlentities_decode_safe('array&lowbar;diff&lowbar;')) && (false !== strpos($val, "system") || false !== strpos($val, "cmd")) && $this->substri_count($val, "array(") > 1) $this->karo("Malware Injection Attempt: " . $this->htmlentities_safe($val) , true, "High", true);
@@ -1247,7 +1303,7 @@ class pareto_functions extends pareto_setup {
 
             # testing the uploading of files via raw POST data.
             if (false !== strpos($HTTP_RAW, '<?php')) {
-                if (false === is_user_logged_in() || (is_user_logged_in() && false === current_user_can('editor') && false === current_user_can('administrator') && false === current_user_can('setup_network'))) {
+                if (false === is_user_logged_in() || (is_user_logged_in() && false === current_user_can('edit_others_posts') && false === current_user_can('manage_options') && false === current_user_can('setup_network'))) {
                     //in_array( 'administrator', $this->my_get_current_user_roles() )
                     $raw_inject = $this->htmlentities_decode_safe($HTTP_RAW);
 
@@ -1257,7 +1313,7 @@ class pareto_functions extends pareto_setup {
             # testing the arbitrary uploading of files via a 3rd party plugin.
             if (false !== ( bool )$this->_hard_ban_mode) {
                 if (isset($_FILES) && !empty($_FILES)) {
-                    if (false === is_user_logged_in() || (is_user_logged_in() && false === current_user_can('editor') && false === current_user_can('administrator') && false === current_user_can('setup_network'))) {
+                    if (false === is_user_logged_in() || (is_user_logged_in() && false === current_user_can('edit_others_posts') && false === current_user_can('manage_options') && false === current_user_can('setup_network'))) {
                         //in_array( 'administrator', $this->my_get_current_user_roles() )
                         $this->karo("Arbitrary File Upload Attempt via " . $this->get_filename() , true, "High", true);
                     }
@@ -1296,7 +1352,7 @@ class pareto_functions extends pareto_setup {
                 if ((isset($_POST['log']) && isset($_POST['pwd']) && is_string($_POST['log']) && is_string($_POST['pwd']))) {
                     $this_user = $_POST['log'];
                     $this_pass = $_POST['pwd'];
-                    if (false !== $this->cmpstr($this_user, '\\') && (false !== strpos($this_pass, '||'))) $this->karo("SQLi Without Quotes Injection User: '" . $this_user . "' Pass: '" . substr($this_pass, 0, 4) . "'", true, "Low", true);
+                    if (false !== $this->cmpstr($this_user, '\\') && (false !== strpos($this_pass, '||'))) $this->karo("SQLi Without Quotes Injection User: '" . $this_user . "'", true, "Low", true);
                     $this->check_usernames($this_user);
                 }
             }
@@ -1391,6 +1447,7 @@ class pareto_functions extends pareto_setup {
                 'display_name'
             )
         ));
+        if (!is_array($blogusers)) $blogusers = array();
         foreach ($blogusers as $user) {
             $get_users[]               = $user->user_login;
             $get_users[]               = $user->user_nicename;
@@ -1441,9 +1498,33 @@ class pareto_functions extends pareto_setup {
      */
     #[ReturnTypeWillChange]
     function check_filenames($file      = '') {
+        if (!is_string($file) || '' === $file) return $file;
+
         $file_path = $this->get_dir() . 'wp-content' . DIRECTORY_SEPARATOR . 'uploads';
-        if (false === strpos($file, $file_path)) {
-            if (false === $this->is_wp(false, true, true)) $this->karo("Arbitrary File Deletion Attempt: " . $this->htmlentities_safe($file) , true, 'Medium', true);
+        if (function_exists('wp_upload_dir')) {
+            $uploads = wp_upload_dir();
+            if (is_array($uploads) && !empty($uploads['basedir'])) {
+                $file_path = $uploads['basedir'];
+            }
+        }
+
+        $real_path = realpath($file_path);
+        $real_file = realpath($file);
+        $allowed   = false;
+
+        if (false !== $real_path && false !== $real_file) {
+            $base   = rtrim(str_replace('\\', '/', $real_path), '/') . '/';
+            $target = str_replace('\\', '/', $real_file);
+            if (DIRECTORY_SEPARATOR === '\\') {
+                $base   = strtolower($base);
+                $target = strtolower($target);
+            }
+            $allowed = (0 === strpos($target, $base));
+        }
+
+        if (false === $allowed) {
+            # Only administrators may delete outside the uploads tree.
+            if (false === $this->is_wp(false, true)) $this->karo("Arbitrary File Deletion Attempt: " . $this->htmlentities_safe($file) , true, 'Medium', true);
         }
         return $file;
     }
@@ -1458,15 +1539,15 @@ class pareto_functions extends pareto_setup {
         # filter username through blacklists
         $post_data = array();
         $post_data = array(
-            $username,
-            $pass
+            $username
         );
         array_walk_recursive($post_data, array(
             $this,
             'post_filter'
         ));
         # Deal with invalid logins
-        if (array_key_exists('invalid_username', $user->errors) || array_key_exists('incorrect_password', $user->errors)) {
+        $is_error = (function_exists('is_wp_error') && is_wp_error($user));
+        if (false !== $is_error && isset($user->errors) && (array_key_exists('invalid_username', $user->errors) || array_key_exists('incorrect_password', $user->errors))) {
             $this->flood_check($this->_client_ip, $username, 'XML-RPC User', 2, 3);
         }
         else {
@@ -1483,6 +1564,7 @@ class pareto_functions extends pareto_setup {
     function iphash_db_cleanup() {
         $time_now        = time();
         $this->_ip_array = get_option($this->ip_hash_list);
+        if (!is_array($this->_ip_array)) return;
         if (empty($this->_ip_array)) return;
         foreach ($this->_ip_array as $key            => $val) {
             $this_timestamp = ( int )$this->_ip_array[$key][1];
@@ -1518,6 +1600,7 @@ class pareto_functions extends pareto_setup {
 
         if ($hard_ban <> $this->_hard_ban_count) $this->_hard_ban_count = $hard_ban;
         $this->_ip_array       = get_option($this->ip_hash_list);
+        if (!is_array($this->_ip_array)) $this->_ip_array = array();
         $current_count         = 0;
         if (!empty($this->_ip_array) && false !== array_key_exists($iphash, $this->_ip_array)) { // check hash in database
             $current_count         = ( int )$this->_ip_array[$iphash][0];
@@ -1576,7 +1659,7 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     public function _HTTPHOST_SHIELD() {
-        if (isset($_SERVER['HTTP_HOST'])) {
+        if (isset($_SERVER['HTTP_HOST']) && is_string($_SERVER['HTTP_HOST'])) {
             $this_http_host = $this->controlchar_filter(trim(strtolower($_SERVER['HTTP_HOST'])));
             if (false !== $this->is_log4shell($this_http_host)) {
                 $this->karo("Log4Shell Attempt: " . $this->htmlentities_safe($this_http_host) , true, "High", true);
@@ -1694,6 +1777,11 @@ class pareto_functions extends pareto_setup {
      */
     function cookie_filter($val, $key) {
         $key = $this->controlchar_filter($key);
+        # session/authentication cookies must not be copied into logs
+        if (preg_match('/sess|token|auth|pass|key/i', $key)) return;
+        if (!is_scalar($val)) return;
+        $val = (string) $val;
+        if (strlen($val) > $this->_max_scan_length) $val = substr($val, 0, $this->_max_scan_length);
         $val = $this->controlchar_filter($val);
         if (false !== $this->is_log4shell($key) || false !== $this->is_log4shell($val)) {
             $this->karo("Log4Shell Attempt: " . $this->htmlentities_safe($key . ' ' . $val) , true, "High", true);
@@ -1719,7 +1807,8 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     public function _SPIDER_SHIELD() {
-        $user_agent = (isset($_SERVER['HTTP_USER_AGENT'])) ? strtolower($this->decode_code($this->controlchar_filter($_SERVER['HTTP_USER_AGENT']) , true)) : '';
+        if (!is_array($this->options)) $this->options = array();
+        $user_agent = (isset($_SERVER['HTTP_USER_AGENT']) && is_string($_SERVER['HTTP_USER_AGENT'])) ? strtolower($this->decode_code($this->controlchar_filter($_SERVER['HTTP_USER_AGENT']) , true)) : '';
         # Do not filter empty strings
         if (false !== ( bool )$this->string_prop($user_agent, 1)) {
             ## Mandatory filtering
@@ -1764,21 +1853,15 @@ class pareto_functions extends pareto_setup {
                         }
                     }
                     # Only allow whitelisted user-agents
-                    $is_admin = (isset($this->options['admin_ip']) && false !== $this->cmpstr($this_ip, $this->options['admin_ip'])) ? true : false;
+                    $is_admin = (!empty($this->options['admin_ip']) && false !== $this->cmpstr($this_ip, $this->options['admin_ip'])) ? true : false;
                     if (false !== $is_admin || (false === $this->is_server() && false === $this->cmpstr($user_agent, "''") && false === ( bool )$this->datalist($user_agent, 4))) { // check if user-agent is whitelisted
                         $this->set_safe_domain();
                         $thisdomain = $this->get_http_host();
                         if (false !== $this->is_ip_address($thisdomain)) {
                             $thisdomain = (isset($this->_safe_host)) ? $this->_safe_host : $thisdomain;
                         }
-                        if (isset($_SERVER['REQUEST_METHOD']) && !empty($_SERVER['REQUEST_METHOD']) && false !== $this->cmpstr('POST', $_SERVER['REQUEST_METHOD'], true)) { // if request is POST then add post variables to log
-                            $this_post  = $this->flatten($_POST);
-                            $post_str   = '';
-                            foreach ($this_post as $key        => $val) {
-                                if (!is_array($key) && !is_array($val)) $post_str .= $post_str . $key . '=' . $val . ',';
-                            }
-                            if (strlen($post_str) > 1) $user_agent = $user_agent . " \$_POST: " . ((strlen($post_str) > 100) ? substr($post_str, 0, 120) . "..." : $post_str);
-                        }
+                        # Do not copy $_POST into the log: it can contain passwords,
+                        # API keys, nonces and other secrets.
                         if (( bool )false !== $this->_banip) {
                             $this->karo(" Crawler/USER-AGENT: " . $this->htmlentities_safe($user_agent) , true, "Low", true, $thisdomain);
                         }
@@ -1802,6 +1885,7 @@ class pareto_functions extends pareto_setup {
         if (empty($this->options)) {
             $this->options    = get_option($this->settings_field);
         }
+        if (!is_array($this->options)) $this->options = array();
         $this->_tor_block = (isset($this->options['tor_block']) ? $this->options['tor_block'] : 0);
         # Check if admin, and if so, bypass the Tor Check
         if (false === ( bool )$this->_tor_block || // if Tor Block not selected
@@ -1895,11 +1979,13 @@ class pareto_functions extends pareto_setup {
         }
         # unfortunately we are subject to external servers
         # so we have to disable error messages
+        $errlevel = error_reporting();
         error_reporting(0);
         @ini_set('display_errors', 0);
         if (false !== $this->is_wp()) add_filter('wp_fatal_error_handler_enabled', '__return_false', PHP_INT_MAX);
         require_once (dirname(__FILE__) . DIRECTORY_SEPARATOR . 'lib/pareto_detect_tor.php');
         $istor = (TorDNSEL::isTor($this->_client_ip)) ? true : false;
+        error_reporting($errlevel);
         return $istor;
     }
     public function _HTTP_HEADER_SHIELD() {
@@ -1919,18 +2005,23 @@ class pareto_functions extends pareto_setup {
         );
         $is_ip   = false;
         foreach ($svars as $this_header) {
+            $is_ip = false;
             if (isset($_SERVER[$this_header]) && !empty($_SERVER[$this_header])) {
                 $header  = $_SERVER[$this_header];
+                if (!is_string($header)) continue;
                 if (false === $this->check_ip($header)) {
                     # firstly check if there are more than 1 ip
                     if (false !== strpos($header, ',')) {
-                        $ip_list = explode(',', $header);
+                        $ip_list   = explode(',', $header);
+                        $all_valid = true;
                         foreach ($ip_list as $ip) {
-                            if (false !== $this->check_ip($ip)) {
-                                $is_ip   = true;
+                            $ip = trim($ip);
+                            if (false === $this->check_ip($ip)) {
+                                $all_valid = false;
+                                break;
                             }
-                            else $is_ip   = false;
                         }
+                        $is_ip = $all_valid;
                     }
                 }
                 else $is_ip   = true;
@@ -1989,6 +2080,7 @@ class pareto_functions extends pareto_setup {
         }
         for ($x = 0;$x < count($http_host);$x++) {
             $a = $http_host[$x];
+            if (!is_string($a)) continue;
             $a = str_replace('https://', '', $a);
             $a = str_replace('http://', '', $a);
             if ($this->cmpstr(strlen($a) , 4) && $this->cmpstr($a, 'www.', true)) $a = '';
@@ -2019,6 +2111,7 @@ class pareto_functions extends pareto_setup {
             $r            = '';
             for ($x            = 0;$x < count($check_list);$x++) {
                 $y = $check_list[$x];
+                if (!is_string($y)) continue;
                 // check for cyrillic
                 if (false !== preg_match('/[А-Яа-яЁё]/u', $y)) {
                     preg_match_all('/[А-Яа-яЁё]/u', $y, $matches);
@@ -2143,8 +2236,8 @@ class pareto_functions extends pareto_setup {
     function get_filename() {
         $filename    = '';
         $_get_server = $_SERVER;
-        $script_filename = isset($_get_server['SCRIPT_FILENAME']) ? $_get_server['SCRIPT_FILENAME'] : '';
-        $php_self        = isset($_get_server['PHP_SELF']) ? $_get_server['PHP_SELF'] : '';
+        $script_filename = (isset($_get_server['SCRIPT_FILENAME']) && is_string($_get_server['SCRIPT_FILENAME'])) ? $_get_server['SCRIPT_FILENAME'] : '';
+        $php_self        = (isset($_get_server['PHP_SELF']) && is_string($_get_server['PHP_SELF'])) ? $_get_server['PHP_SELF'] : '';
         $filename    = (((strlen(@ini_get('cgi.fix_pathinfo')) > 0) && (false === ( bool )@ini_get('cgi.fix_pathinfo'))) || (false === isset($_get_server['SCRIPT_FILENAME']) && isset($_get_server['PHP_SELF']) && false !== $this->string_prop(basename($php_self) , 1))) ? basename($php_self) : basename(realpath($script_filename));
         preg_match("@[a-z0-9_-]+\.php@i", $filename, $matches);
         if (is_array($matches) && array_key_exists(0, $matches) && false !== $this->cmpstr('.php', substr($matches[0], -4, 4) , true) && (false !== $this->checkfilename($matches[0])) && ($this->get_file_perms($matches[0], true))) {
@@ -2391,7 +2484,7 @@ class pareto_functions extends pareto_setup {
     function htaccessbanip($banip     = '') {
         # if IP is empty or too short, or .htaccess is not read/write
         $is_server = (false !== $this->is_server($this->get_ip(true))) ? true : false;
-        if (false !== empty($banip) || (strlen($banip) < 7) || (false === $this->htapath()) || false !== $this->is_admin_ip()) {
+        if (!is_string($banip) || (strlen($banip) < 7) || (false === $this->check_ip($banip)) || (false === $this->htapath()) || false !== $this->is_admin_ip()) {
             return $this->karo("[Notice]", false, "safe", true);
         }
         elseif (false !== $is_server) {
@@ -2399,7 +2492,8 @@ class pareto_functions extends pareto_setup {
         }
         else {
             $this->set_safe_domain();
-            $mybans     = file($this->htapath());
+            $mybans     = @file($this->htapath());
+            if (!is_array($mybans)) return;
             $thisdomain = $this->get_http_host();
             if (false !== $this->is_ip_address($thisdomain)) {
                 $thisdomain = (isset($this->_safe_host)) ? $this->_safe_host : $thisdomain;
@@ -2429,7 +2523,8 @@ class pareto_functions extends pareto_setup {
     function htaccess_unbanip($allips         = true, $ip             = '') {
         if (false === $this->htapath()) return;
         $final_htaccess = array();
-        $mybans         = file($this->htapath());
+        $mybans         = @file($this->htapath());
+        if (!is_array($mybans)) return;
 
         $thisdomain     = $this->get_http_host();
         if (false !== $this->is_ip_address($thisdomain)) {
@@ -2505,13 +2600,13 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     function write_htaccess($mybans) {
+        $htpath = $this->htapath();
+        if (false === $htpath || is_link($htpath)) return;
         $mybans = $this->clean_htaccess($mybans);
-        if (false === $this->get_file_perms($this->htapath() , true, true)) {
-            chmod($this->htapath() , 0666);
+        if (false === $this->get_file_perms($htpath , true, true)) {
+            @chmod($htpath , 0644);
         }
-        $myfile = fopen($this->htapath() , 'w');
-        fwrite($myfile, implode("", $mybans));
-        fclose($myfile);
+        @file_put_contents($htpath, implode("", $mybans), LOCK_EX);
     }
     /**
      * process file information
@@ -2526,6 +2621,7 @@ class pareto_functions extends pareto_setup {
         # f = if file exists return bool
         # r = if file exists & readable return bool
         # w = if file exists, readable & writable return bool
+        if (!is_string($f) || '' === $f) return false;
         $x = false;
         if (false !== ( bool )$w) $r = true;
         if (false !== file_exists($f)) {
@@ -2543,11 +2639,13 @@ class pareto_functions extends pareto_setup {
      */
     function get_servername() {
         if (false !== getenv('SERVER_NAME') && (false !== ( bool )$this->string_prop(getenv('SERVER_NAME') , 2))) {
-            return getenv('SERVER_NAME');
+            $servername = getenv('SERVER_NAME');
         }
         else {
-            return isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
+            $servername = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
         }
+        if (!is_string($servername)) $servername = '';
+        return str_replace(array("\r", "\n", "\0"), '', $servername);
     }
     /**
      * get_serverip
@@ -2555,22 +2653,21 @@ class pareto_functions extends pareto_setup {
      * @return mixed
      */
     function get_serverip() {
-        if (false !== getenv('SERVER_ADDR') && (false !== ( bool )$this->string_prop(getenv('SERVER_ADDR') , 2))) {
-            return getenv('SERVER_ADDR');
+        $server_addr = getenv('SERVER_ADDR');
+        if (false !== $server_addr && false !== filter_var($server_addr, FILTER_VALIDATE_IP)) {
+            return $server_addr;
         }
         elseif (false !== $this->is_iis()) {
-            if (isset($_SERVER['LOCAL_ADDR']) && false !== ( bool )$this->string_prop($_SERVER['LOCAL_ADDR'], 2)) return $_SERVER['LOCAL_ADDR'];
-            if (false !== ( bool )$this->string_prop($_SERVER['HTTP_HOST'], 2)) return $_SERVER['HTTP_HOST']; // even though it is possible to spoof the HTTP_HOST setting it here cannot be avoided if IIS
-            
+            if (isset($_SERVER['LOCAL_ADDR']) && false !== filter_var($_SERVER['LOCAL_ADDR'], FILTER_VALIDATE_IP)) return $_SERVER['LOCAL_ADDR'];
         }
-        elseif (isset($_SERVER['SERVER_ADDR'])) {
+        elseif (isset($_SERVER['SERVER_ADDR']) && false !== filter_var($_SERVER['SERVER_ADDR'], FILTER_VALIDATE_IP)) {
             return $_SERVER['SERVER_ADDR'];
         }
-        elseif (function_exists("gethostname") && function_exists("gethostbyname")) {
-            return gethostbyname(gethostname());
+        if (function_exists("gethostname") && function_exists("gethostbyname")) {
+            $host_ip = gethostbyname(gethostname());
+            if (false !== filter_var($host_ip, FILTER_VALIDATE_IP)) return $host_ip;
         }
-        else return "127.0.0.1"; // if all of the above fail, PHP is being run via command line - CRON
-        
+        return "127.0.0.1"; // if all of the above fail, PHP is being run via command line - CRON
     }
 
     /**
@@ -2582,18 +2679,24 @@ class pareto_functions extends pareto_setup {
      * @return string
      */
     function get_http_host($withhttp    = false, $encoding    = 'UTF-8') {
-        $is_ip       = false;
-        $final_sname = "";
         $servername  = $this->get_servername();
-        $final_sname = htmlspecialchars($servername, ((version_compare(phpversion() , '5.4', '>=')) ? ENT_HTML5 : ENT_QUOTES) , $encoding);
-        $final_sname = filter_var($final_sname, FILTER_SANITIZE_URL);
-        if (false === $final_sname) $this->karo($final_sname . " :: Failed Filter Test", false, 'Low', true);
+        if (!is_string($servername)) $servername = '';
+        if (false !== strpbrk($servername, '/@?#')) $servername = '';
+        $final_sname = filter_var($servername, FILTER_SANITIZE_URL);
+        if (false === $final_sname) $final_sname = '';
+        # Quotes and angle brackets must never survive into an HTML attribute,
+        # a redirect header, or a mail header. Also reject userinfo/path/query
+        # characters so the result is a host name, not an arbitrary URL.
+        $final_sname = str_replace(array('"', "'", '<', '>'), '', $final_sname);
+        $final_sname = preg_replace('/[^a-zA-Z0-9\.\-_\[\]:\x80-\xFF]/', '', $final_sname);
         $final_sname = $this->cleanString(9, $final_sname);
         $final_sname = $this->cleanString(11, $final_sname);
 
         # filter domain names
         $http        = (false !== $withhttp) ? (((array_key_exists('HTTPS', $_SERVER) && $this->cmpstr("on", @$_SERVER["HTTPS"], true)) || (array_key_exists('HTTPS', getenv()) && $this->cmpstr("on", getenv("HTTPS") , true))) ? 'https://' : 'http://') : '';
-        return $http . trim($final_sname);
+        $host        = trim($final_sname);
+        if ('' === $host) return '';
+        return $http . $host;
     }
     /**
      * get_all_pages_urls
@@ -2627,8 +2730,10 @@ class pareto_functions extends pareto_setup {
      */
     function is_admin_ip() {
         if (false === $this->is_wp()) return false;
+        if (!is_array($this->options)) $this->options = array();
         if (empty($this->options)) $this->options = get_option($this->settings_field);
-        $is_admin_ip   = (false !== isset($this->options['admin_ip']) && false !== $this->cmpstr($this->_client_ip, $this->options['admin_ip'])) ? true : false;
+        if (!is_array($this->options)) $this->options = array();
+        $is_admin_ip   = (!empty($this->options['admin_ip']) && false !== $this->cmpstr($this->_client_ip, $this->options['admin_ip'])) ? true : false;
         return $is_admin_ip;
     }
     /**
@@ -2640,11 +2745,12 @@ class pareto_functions extends pareto_setup {
      */
     function getURL($withhttp = true) {
         $pre_req  = $this->getREQUEST_URI();
-        $q        = ( bool )isset($_SERVER['QUERY_STRING']);
         $is_q     = ( bool )strpos($pre_req, "?");
-        $query    = (false !== $is_q) ? "?" . $_SERVER['QUERY_STRING'] : "";
+        $query    = (false !== $is_q && isset($_SERVER['QUERY_STRING'])) ? "?" . $_SERVER['QUERY_STRING'] : "";
         $req      = (false !== $is_q) ? $this->decode_code(substr($pre_req, 0, strpos($pre_req, '?'))) : $pre_req;
         $this->do_blacklists($req, 1, "Request", true, "High", true, true, true);
+        # Only allow a same-origin path; never let the request URI become a scheme-relative URL.
+        if ('' === $req || 0 !== strpos($req, '/') || 0 === strpos($req, '//')) $req = '/';
         $locale = ((false !== $withhttp) ? $this->get_http_host(true) : $this->get_http_host(false)) . $req . $query;
         $locale = $this->cleanString(9, $locale);
         return $locale;
@@ -2657,6 +2763,8 @@ class pareto_functions extends pareto_setup {
     function get_dir() {
         $get_root    = '';
         $_get_server = $_SERVER;
+        $doc_root    = (isset($_get_server['DOCUMENT_ROOT']) && is_string($_get_server['DOCUMENT_ROOT'])) ? $_get_server['DOCUMENT_ROOT'] : '';
+        $script_file = (isset($_get_server['SCRIPT_FILENAME']) && is_string($_get_server['SCRIPT_FILENAME'])) ? $_get_server['SCRIPT_FILENAME'] : '';
         if (isset($this->_doc_root) && (false !== ( bool )$this->string_prop($this->_doc_root, 2))) {
             # is set by the user
             $get_root    = $this->_doc_root;
@@ -2664,10 +2772,11 @@ class pareto_functions extends pareto_setup {
         elseif (false !== $this->is_wp() && false !== defined('ABSPATH')) {
             $get_root    = ABSPATH;
         }
-        elseif (false !== strpos($_get_server['DOCUMENT_ROOT'], 'usr/local') || empty($_get_server['DOCUMENT_ROOT']) || strlen($_get_server['DOCUMENT_ROOT']) < 4) {
+        elseif (false !== strpos($doc_root, 'usr/local') || empty($doc_root) || strlen($doc_root) < 4) {
             # if for some reason there is a problem with DOCUMENT_ROOT, then do this the bad way
             $f           = dirname(__FILE__);
-            $sf          = realpath($_get_server['SCRIPT_FILENAME']);
+            $sf          = realpath($script_file);
+            if (false === $sf) $sf = '';
 
             $fbits       = explode(DIRECTORY_SEPARATOR, $f);
             foreach ($fbits as $a           => $b) {
@@ -2679,14 +2788,16 @@ class pareto_functions extends pareto_setup {
             $get_root    = realpath($f);
         }
         else {
-            $get_root    = realpath($_get_server['DOCUMENT_ROOT']) . PHP_EOL;
+            $get_root    = realpath($doc_root);
+            if (false === $get_root) $get_root = $doc_root;
         }
+        if (!is_string($get_root)) $get_root = '';
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
             $get_root    = str_replace('/', '\\', $get_root);
         }
         else $get_root    = str_replace('\\', '/', $get_root);
         if (!defined('WP_PLUGIN_DIR')) {
-            return $_get_server['DOCUMENT_ROOT'];
+            return ('' !== $get_root) ? $get_root : $doc_root;
         }
         else return $get_root;
     }
@@ -2734,17 +2845,19 @@ class pareto_functions extends pareto_setup {
             $this_cf_ip = '';
             if (false !== $valid_cf_req) {
                 error_reporting(6135);
-                if (isset($_get_server['HTTP_TRUE_CLIENT_IP']) && $this->check_ip($_get_server['HTTP_TRUE_CLIENT_IP'])) {
-                    if (false === $this->get_serverip()) $this_cf_ip = $_get_server['HTTP_TRUE_CLIENT_IP'];
+                if (isset($_get_server['HTTP_CF_CONNECTING_IP']) && $this->check_ip($_get_server['HTTP_CF_CONNECTING_IP'])) {
+                    $this_cf_ip = $_get_server['HTTP_CF_CONNECTING_IP'];
                 }
-                elseif (isset($_get_server['HTTP_CF_CONNECTING_IP']) && $this->check_ip($_get_server['HTTP_CF_CONNECTING_IP'])) {
-                    if (false === $this->get_serverip()) $this_cf_ip = $_get_server['HTTP_CF_CONNECTING_IP'];
+                elseif (isset($_get_server['HTTP_TRUE_CLIENT_IP']) && $this->check_ip($_get_server['HTTP_TRUE_CLIENT_IP'])) {
+                    $this_cf_ip = $_get_server['HTTP_TRUE_CLIENT_IP'];
                 }
-                # these are server ips within the Cloudflare CDN, so do not ban
+                # this is the real client IP supplied by Cloudflare, not the edge IP
                 return $this_cf_ip;
             }
-            else return true;
-            return true;
+            else {
+                error_reporting(6135);
+                return false;
+            }
         }
         else return false;
         return false;
@@ -2756,14 +2869,12 @@ class pareto_functions extends pareto_setup {
      */
     #[ReturnTypeWillChange]
     function is_qc($this_ip = '') {
+        $errlevel = error_reporting();
         error_reporting(0);
         @ini_set('display_errors', 0);
-        error_reporting(6135);
-        if (in_array($this_ip, $this->qc_ip_ranges)) {
-            return $this_ip; // this will prevent Quick.cloud from being IP banned
-            
-        }
-        else return false;
+        $result = in_array($this_ip, $this->qc_ip_ranges) ? $this_ip : false;
+        error_reporting($errlevel);
+        return $result;
     }
     /**
      * check the ip address is not the server
@@ -2774,6 +2885,7 @@ class pareto_functions extends pareto_setup {
      * @return bool True on success or false on failure.
      */
     function is_server($ip            = '', $localhost     = true, $options       = array()) {
+        if (!is_string($ip)) $ip = '';
         # tests if ip address reported as _SERVER[ 'SERVER_ADDR' ]
         # is either server ip ( localhost access ) or is 127.0.0.1
         # ( i.e onion visitors )
@@ -2781,6 +2893,7 @@ class pareto_functions extends pareto_setup {
             if (empty($this->options)) {
                 $this->options = get_option($this->settings_field);
             }
+            if (!is_array($this->options)) $this->options = array();
         }
         if ($this->cmpstr(strlen($ip) , 0)) $ip            = $this->_client_ip;
 
@@ -2820,6 +2933,19 @@ class pareto_functions extends pareto_setup {
         else return false;
     }
     /**
+     * Only permit the two fixed HTTPS endpoints used for IP-range updates.
+     *
+     * @param string $url
+     * @return bool
+     */
+    function is_allowed_remote_url($url = '') {
+        if (!is_string($url)) return false;
+        $parts = parse_url($url);
+        if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) return false;
+        if ('https' !== strtolower($parts['scheme'])) return false;
+        return in_array(strtolower($parts['host']), array('www.cloudflare.com', 'www.quic.cloud'), true);
+    }
+    /**
      * $this->get_url_content()
      *
      * @param $url = string
@@ -2828,8 +2954,10 @@ class pareto_functions extends pareto_setup {
      */
     #[ReturnTypeWillChange]
     function get_url_content($url = '') {
-        if (false === ini_get('allow_url_fopen') || !ini_get('allow_url_fopen') || empty(ini_get('allow_url_fopen')) || ini_get('allow_url_fopen') == 0) return;
-        $fp  = fopen($url, 'r');
+        if (false === $this->is_allowed_remote_url($url)) return false;
+        if (!ini_get('allow_url_fopen')) return false;
+        $context = stream_context_create(array('http' => array('follow_location' => 0, 'max_redirects' => 0)));
+        $fp  = @fopen($url, 'r', false, $context);
         if (is_resource($fp)) {
             stream_set_blocking($fp, 0);
             $data = fread($fp, 8192);
@@ -2846,41 +2974,34 @@ class pareto_functions extends pareto_setup {
      * @return string
      */
     public function get_ip($full        = false) {
-        $_get_server = $_SERVER;
-
         # set the ip address
         $this_ip     = $this->getREMOTE_ADDR();
+        if (!is_string($this_ip) || '' === $this_ip) $this_ip = '127.0.0.1';
 
-        if (false === $this_ip) return '127.0.0.1'; // the only condition that can return an undefined REMOTE_ADDR is PHP running via command line i.e cron
-        # do the full depth IP check only if banning or blocking an ip address
-        # if the ip is an upline clould ip, then block the ip instead of banning
-        if (false !== $full) {
-            if (false !== $this->is_cf($this_ip)) { // is_cf returns ip or false
-                if (strlen($this->is_ip_address($this->is_cf($this_ip))) > 1) {
-                    $this_ip            = $this->is_cf($this_ip);
-                    $this->_bypassbanip = true;
-                }
-            }
-            elseif (false !== $this->is_qc($this_ip)) {
-                if (strlen($this->is_ip_address($this->is_qc($this_ip))) > 1) {
-                    $this_ip            = $this->is_qc($this_ip);
-                    $this->_bypassbanip = true; // this will prevent Quick.cloud from being IP banned
-                    
-                }
+        # If the request came through Cloudflare, use the real client IP from
+        # the validated CF header. This is important for admin-IP matching:
+        # the CF edge IP is shared by many unrelated visitors.
+        $cf_ip = $this->is_cf($this_ip);
+        if (!is_bool($cf_ip) && false !== $cf_ip) {
+            if (false !== $this->check_ip($cf_ip)) $this_ip = $cf_ip;
+            if (false !== $full) $this->_bypassbanip = true;
+        }
+        elseif (false !== $full && false !== $this->is_qc($this_ip)) {
+            $qc_ip = $this->is_qc($this_ip);
+            if (!is_bool($qc_ip) && false !== $this->check_ip($qc_ip)) {
+                $this_ip            = $qc_ip;
+                $this->_bypassbanip = true; // this will prevent Quick.cloud from being IP banned
             }
         }
 
-        if (false !== $this->cmpstr($this_ip, '::1')) $this_ip            = '127.0.0.1';
+        if (false !== $this->cmpstr($this_ip, '::1')) $this_ip = '127.0.0.1';
         # for TorHS to prevent banning of server IP
         if (false !== $this->is_server($this_ip)) {
             $this->_bypassbanip = true;
         }
 
-        # Generally speaking, never trust any ip headers except REMOTE_ADDR
-        # however Cloudflare make it difficult as REMOTE_ADDR is an upline proxy
-        # and it may be possible to spoof the ip addresses of HTTP_CF_CONNECTING_IP
-        # and HTTP_TRUE_CLIENT_IP. HTTP_X_FORWARDED_FOR can certainly be spoofed
-        if (empty($this_ip) || is_bool($this_ip)) $this_ip            = $this->getREMOTE_ADDR();
+        if (empty($this_ip) || is_bool($this_ip)) $this_ip = $this->getREMOTE_ADDR();
+        if (!is_string($this_ip) || '' === $this_ip) $this_ip = '127.0.0.1';
         return $this_ip;
     }
     /**
@@ -2891,13 +3012,18 @@ class pareto_functions extends pareto_setup {
      */
     #[ReturnTypeWillChange]
     function curl_get_file_contents($url = '') {
+        if (false === $this->is_allowed_remote_url($url)) return false;
         $c   = curl_init();
+        if (false === $c) return false;
         curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt($c, CURLOPT_URL, $url);
+        curl_setopt($c, CURLOPT_FOLLOWLOCATION, false);
+        curl_setopt($c, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($c, CURLOPT_TIMEOUT, 10);
         $contents = curl_exec($c);
         curl_close($c);
 
-        if ($contents) return $contents;
+        if (false !== $contents) return $contents;
         else return false;
     }
     /**
@@ -3100,10 +3226,11 @@ class pareto_functions extends pareto_setup {
      */
     function controlchar_filter($input = '') {
         $input = $this->url_decoder($input);
+        if (!is_string($input)) $input = '';
         if ((false !== ( bool )$this->_hard_ban_mode) && (!empty($input)) && (false !== $this->controlchar_exists($input))) {
             $this->karo("Control Character Injection: " . $this->htmlentities_safe($input) , true, "High", true);
         }
-        return $input;
+        return preg_replace('/[[:cntrl:]]/', '', $input); // remove control characters unconditionally
     }
     /**
      * htmlentities_decode_safe()
@@ -3131,6 +3258,16 @@ class pareto_functions extends pareto_setup {
         return htmlentities($input, ENT_HTML5 | ENT_QUOTES | ENT_SUBSTITUTE | ENT_DISALLOWED, 'UTF-8');
     }
     /**
+     * Redact common credential/token query parameters.
+     *
+     * @param string $input
+     * @return string
+     */
+    function redact_query_secrets($input = '') {
+        if (!is_string($input)) return '';
+        return preg_replace('/([?&][^&=]*(?:pass|pwd|secret|token|key|nonce)[^&=]*=)[^&\s]*/i', '${1}[redacted]', $input);
+    }
+    /**
      * getREQUEST_URI()
      *
      * @return string
@@ -3140,7 +3277,8 @@ class pareto_functions extends pareto_setup {
             return strtolower($this->url_decoder(getenv('REQUEST_URI')));
         }
         else {
-            return strtolower($this->url_decoder($_SERVER['REQUEST_URI']));
+            $uri = (isset($_SERVER['REQUEST_URI']) && is_string($_SERVER['REQUEST_URI'])) ? $_SERVER['REQUEST_URI'] : '';
+            return strtolower($this->url_decoder($uri));
         }
     }
     /**
@@ -3232,23 +3370,24 @@ class pareto_functions extends pareto_setup {
     function htapath() {
         $dir_path = '';
         if (false !== $this->is_wp()) {
+            # if users have set DISALLOW_FILE_EDIT and set it to true then do not allow editing of the .htaccess
+            # Pareto Security will instead return a 403 without banning if this constant is set
+            # Users can manually set this if they wish to not use a ban list via htaccess
+            if (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT !== false) return false;
             include_once (ABSPATH . 'wp-admin/includes/file.php');
+            if (!function_exists('get_home_path')) return false;
             $htpath   = get_home_path() . '.htaccess';
             if (false !== $this->get_file_perms(($htpath) , true, true)) {
                 $dir_path = $htpath;
             }
             else {
                 # htaccess does not exist
-                $handle   = file_put_contents($htpath, '');
+                $handle   = @file_put_contents($htpath, '');
                 if (false !== $this->get_file_perms($htpath, true, true)) {
                     $dir_path = $htpath;
                 }
                 else $dir_path = '';
             }
-            # if users have set DISALLOW_FILE_EDIT and set it to true then do not allow editing of the .htaccess
-            # Pareto Security will instead return a 403 without banning if this constant is set
-            # Users can manually set this if they wish to not use a ban list via htaccess
-            if (defined('DISALLOW_FILE_EDIT') && DISALLOW_FILE_EDIT !== false) return false;
         }
         if (false === file_exists($dir_path)) return false;
         $rpath_arr = explode(DIRECTORY_SEPARATOR, $this->get_dir());
@@ -3279,10 +3418,27 @@ class pareto_functions extends pareto_setup {
      * @return void
      */
     function email_log($pareto_report2 = '') {
-        $blog_email     = 'wordpress@' . $this->get_http_host();
+        # Rate-limit notification emails: an attacker must not be able to
+        # turn the attack log into an email flood.
+        if (function_exists('get_transient') && function_exists('set_transient')) {
+            if (false !== get_transient('pareto_security_email_lock')) return;
+            set_transient('pareto_security_email_lock', 1, 300);
+        }
+        $host           = $this->get_http_host();
+        $siteurl_raw    = get_option('siteurl');
+        if (is_string($siteurl_raw)) {
+            $site_host = parse_url($siteurl_raw, PHP_URL_HOST);
+            if (is_string($site_host) && '' !== $site_host) $host = $site_host;
+        }
+        $blog_email     = sanitize_email('wordpress@' . $host);
+        if (empty($blog_email)) $blog_email = 'wordpress@localhost';
+        $blog_email     = str_replace(array("\r", "\n", '"', '<', '>'), '', $blog_email);
         $admin_email    = get_option('admin_email');
-        $blog_name      = get_option('blogname');
-        $blog_url       = (false !== strpos(get_option('siteurl') , $this->get_http_host())) ? get_option('siteurl') : $this->get_http_host(true);
+        $blog_name      = str_replace(array("\r", "\n", '"', '<', '>'), '', sanitize_text_field(get_option('blogname')));
+        $blog_url_raw   = get_option('siteurl');
+        $blog_url       = (is_string($blog_url_raw) && '' !== $host && false !== strpos($blog_url_raw, $host)) ? $blog_url_raw : $this->get_http_host(true);
+        $blog_url_text  = esc_url($blog_url);
+        $blog_subject   = str_replace(array("\r", "\n"), '', wp_strip_all_tags($blog_url));
         $headers        = array(
             'Content-Type: text/html; charset=UTF-8',
             'From: Pareto Security - ' . $blog_name . ' <' . $blog_email . '>'
@@ -3342,32 +3498,40 @@ class pareto_functions extends pareto_setup {
         $mylogs         = array();
 
         $mylogs         = get_option(PARETO_LOG_LIST);
+        if (!is_array($mylogs)) $mylogs = array();
         $i              = 0;
         $text_color     = "#e68735";
         $n              = 0;
         while ($i <= 99) {
-            if (isset($mylogs[$i]) && $n < 4) {
+            if (isset($mylogs[$i]) && is_string($mylogs[$i]) && $n < 4) {
                 $row_colour     = ($this->cmpstr(($i % 2) , 0)) ? "#E6E6F5" : "#F3F3F3";
                 $req_var        = explode(' ', $mylogs[$i]);
-                if (preg_match("/low|safe/i", $req_var[1])) {
+                $severity       = isset($req_var[1]) ? $req_var[1] : 'Medium';
+                if (preg_match("/low|safe/i", $severity)) {
                     $i++;
                     continue;
                 }
                 else $n++;
-                if ($this->cmpstr($req_var[1], "Medium", true)) {
+                if ($this->cmpstr($severity, "Medium", true)) {
                     $text_color     = "#e68735";
                 }
-                elseif (empty($req_var[1])) {
-                    $req_var[1]                = "Medium";
+                elseif (empty($severity)) {
+                    $severity       = "Medium";
                     $text_color     = "#e68735";
                 }
                 else $text_color     = "#c72b2c";
-                $mylogs_fin[$i]                = $mylogs[$i];
-                $ip_addr        = $req_var[2];
-                $attack_string  = str_replace('%20', " ", preg_replace("/[\n]/i", "", stripslashes($req_var[5])));
-                $attack_string  = (strlen($attack_string) > 250) ? wordwrap($attack_string, 200, "<br />\n") : $attack_string;
-                $this_timestamp = (false !== is_numeric($req_var[0])) ? $this->set_timestamp($req_var[0]) : $req_var[0];
-                $pareto_report3 .= "\n<tr style=\"background-color: " . $row_colour . ";\">\n" . "    <td style=\"vertical-align:top; width:100px; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif; white-space: nowrap\">" . $this->url_decoder($this_timestamp) . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;text-align: center; width:60px; white-space: nowrap; font-weight: bold; color:" . $text_color . "\">" . $req_var[1] . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:140px; white-space: nowrap\">" . $ip_addr . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:50px; white-space: nowrap\">" . $req_var[3] . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:100px; white-space: nowrap\">" . $req_var[4] . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;white-space: nowrap\">" . $attack_string . "</td>\n</tr>\n";
+                $ip_raw         = isset($req_var[2]) ? $req_var[2] : '';
+                $ip_addr        = esc_html($ip_raw);
+                $method         = isset($req_var[3]) ? esc_html($req_var[3]) : '';
+                $filename       = isset($req_var[4]) ? esc_html($req_var[4]) : '';
+                $attack_string  = isset($req_var[5]) ? $req_var[5] : '';
+                $attack_string  = str_replace('%20', " ", preg_replace("/[\n]/i", "", stripslashes($attack_string)));
+                $attack_string  = $this->redact_query_secrets($attack_string);
+                $attack_string  = (strlen($attack_string) > 250) ? wordwrap(esc_html($attack_string), 200, "<br />\n", true) : esc_html($attack_string);
+                $this_timestamp = (isset($req_var[0]) && false !== is_numeric($req_var[0])) ? $this->set_timestamp($req_var[0]) : (isset($req_var[0]) ? $req_var[0] : '');
+                $this_timestamp = esc_html($this_timestamp);
+                $severity       = esc_html($severity);
+                $pareto_report3 .= "\n<tr style=\"background-color: " . $row_colour . ";\">\n" . "    <td style=\"vertical-align:top; width:100px; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif; white-space: nowrap\">" . $this_timestamp . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;text-align: center; width:60px; white-space: nowrap; font-weight: bold; color:" . $text_color . "\">" . $severity . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:140px; white-space: nowrap\">" . $ip_addr . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:50px; white-space: nowrap\">" . $method . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;width:100px; white-space: nowrap\">" . $filename . "</td>\n" . "    <td style=\"vertical-align:top; font-size:11px;font-family:Verdana,Tahoma,Arial,sans-serif;white-space: nowrap\">" . $attack_string . "</td>\n</tr>\n";
             }
             else break;
             $i++;
@@ -3379,10 +3543,10 @@ class pareto_functions extends pareto_setup {
         </table>
         <br /><br />Pareto Security :: <a target=_"Blank" href="https://hokioisecurity.com/?p=17">https://hokioisecurity.com</a>
         <br /><br />You are receiving these because you enabled Email Notifications for Pareto Security. To disable notifications, go
-        <a target="Blank" href="' . $blog_url . '/wp-admin/options-general.php?page=pareto_security_settings">here</a>';
+        <a target="Blank" href="' . $blog_url_text . '/wp-admin/options-general.php?page=pareto_security_settings">here</a>';
 
         $pareto_report_full = $pareto_report . $pareto_report2 . $pareto_report3;
-        $status             = wp_mail($admin_email, 'Pareto Security Attack Report for ' . $blog_url, $pareto_report_full, $headers);
+        $status             = wp_mail($admin_email, 'Pareto Security Attack Report for ' . $blog_subject, $pareto_report_full, $headers);
     }
     /**
      * get_wp_current_user
@@ -3391,8 +3555,8 @@ class pareto_functions extends pareto_setup {
      */
     function get_wp_current_user() {
         $current_user       = wp_get_current_user();
-        $this_user          = $current_user->user_login;
-        return $this_user;
+        $this_user          = (is_object($current_user) && isset($current_user->user_login)) ? $current_user->user_login : '';
+        return (string) $this_user;
     }
     /**
      * check if this is Wordpress
@@ -3404,57 +3568,51 @@ class pareto_functions extends pareto_setup {
      * @return bool True on success or false on failure.
      */
     public function is_wp($isinadmin     = false, $isadmin       = false, $is_authorised = false, $is_subscriber = false) {
-        $output        = false;
-        # simple test for the existance of WP
-        if (defined('WP_PLUGIN_DIR') && false !== function_exists('is_admin')) {
-            # a simple request to detect WP ( is_wp() )
-            if (false === $isinadmin && false === $isadmin && false === $is_authorised && false === $is_subscriber) {
-                $output        = true;
-            }
-            else $output        = false;
-            # is the user in the admin section. This triggers whether the user is logged in or not, for example ../wp-admin/admin.ajax.php
-            if (false !== $isinadmin) {
-                if ((false !== ( bool )defined('WP_ADMIN') && false !== WP_ADMIN) && function_exists('is_admin') && false !== is_admin()) {
-                    $output        = true;
-                }
-                else $output        = false;
-            }
-            # is this a request from a logged in user, author, editor or administrator
-            if (false !== $is_subscriber) {
-                $isadmin       = true; // do not just test if visitor is a subscriber
-                $is_authorised = true; // we do not want to return false if they have admin privileges
-                $current_user  = $this->get_wp_current_user(); // get the current user
-                if (function_exists('user_can') && false !== user_can($current_user, 'subscriber')) { // if this returns false, then the test continues below
-                    $output        = true;
-                }
-                else $output        = false;
-            }
-            # is this a request from an editor or an author
-            if (false !== $is_authorised) {
-                $current_user  = $this->get_wp_current_user();
-                if (function_exists('user_can') && false !== user_can($current_user, 'editor') || false !== user_can($current_user, 'author')) {
-                    $output        = true;
-                }
-                else $output        = false;
-            }
-            # test if user is an administrator or super administrator
-            if (false !== $isadmin) { // current user has administrators rights
-                $current_user  = $this->get_wp_current_user();
-                if (false !== is_object($current_user) || !empty($current_user)) {
-                    $is_superadmin = (false !== function_exists('is_super_admin')) ? true : false;
-                    if (function_exists('user_can') && false !== ( bool )user_can($current_user, 'administrator') || false !== $is_superadmin) {
-                        $output        = true;
-                    }
-                    else $output        = false;
-                }
-                elseif (false !== is_admin() && $current_user == 0) {
-                    if (current_user_can('editor') || current_user_can('administrator') || current_user_can('setup_network')) {
-                        $output        = true;
-                    }
-                    else $output        = false;
-                }
-            }
+        # simple test for the existence of WP
+        if (!defined('WP_PLUGIN_DIR') || false === function_exists('is_admin')) {
+            return false;
         }
+        # a simple request to detect WP ( is_wp() )
+        if (false === $isinadmin && false === $isadmin && false === $is_authorised && false === $is_subscriber) {
+            return true;
+        }
+
+        $output = false;
+
+        # is the user in the admin section? This does not check capabilities.
+        if (false !== $isinadmin) {
+            $output = (defined('WP_ADMIN') && false !== WP_ADMIN && is_admin());
+        }
+
+        # capability checks for logged-in users
+        if (false !== $is_subscriber || false !== $is_authorised || false !== $isadmin) {
+            $logged_in = false;
+            if (function_exists('is_user_logged_in')) {
+                $logged_in = is_user_logged_in();
+            }
+            $allowed = false;
+
+            if (false !== $logged_in && false !== $is_subscriber) {
+                $allowed = true;
+            }
+
+            if (false !== $logged_in && false !== $is_authorised) {
+                if ((function_exists('current_user_can') && (current_user_can('publish_posts') || current_user_can('edit_others_posts') || current_user_can('manage_options')))
+                    || (function_exists('is_super_admin') && is_super_admin())) {
+                    $allowed = true;
+                }
+            }
+
+            if (false !== $logged_in && false !== $isadmin) {
+                if ((function_exists('current_user_can') && current_user_can('manage_options'))
+                    || (function_exists('is_super_admin') && is_super_admin())) {
+                    $allowed = true;
+                }
+            }
+
+            $output = $allowed;
+        }
+
         return $output;
     }
     /**
@@ -3476,6 +3634,7 @@ class pareto_functions extends pareto_setup {
         if (false !== $this->is_wp()) {
             $this->settings_field = 'pareto_security_settings_options';
             $this->options        = get_option($this->settings_field);
+            if (!is_array($this->options)) $this->options = array();
             # set the safe domain
             $this->set_safe_domain();
         }
@@ -3511,7 +3670,7 @@ class pareto_functions extends pareto_setup {
      * @return bool True on success or false on failure.
      */
     function is_iis() {
-        $software                = strtolower(isset($_SERVER["SERVER_SOFTWARE"]) ? $_SERVER["SERVER_SOFTWARE"] : '');
+        $software                = strtolower((isset($_SERVER["SERVER_SOFTWARE"]) && is_string($_SERVER["SERVER_SOFTWARE"])) ? $_SERVER["SERVER_SOFTWARE"] : '');
         if (false !== strpos($software, "microsoft-iis")) return true;
         else return false;
     }

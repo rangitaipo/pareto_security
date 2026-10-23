@@ -182,7 +182,7 @@ class TorDNSEL
         if ( false !== getenv( 'SERVER_NAME' ) && ( false !== ( bool ) $this->string_prop( getenv( 'SERVER_NAME' ), 2 ) ) ) {
             return getenv( 'SERVER_NAME' );
         } else {
-            return $_SERVER[ 'SERVER_NAME' ];
+            return isset( $_SERVER[ 'SERVER_NAME' ] ) ? $_SERVER[ 'SERVER_NAME' ] : '';
         }        
     }
     /**
@@ -213,7 +213,7 @@ class TorDNSEL
 
         if (!$data) {
             #throw new \Exception('DNS request timed out');
-            exit( "<meta http-equiv=\"refresh\" content=\"10;URL='https://" . $this->get_server_name() . "'\" />\n<br />\n<br />\n<br />\n<center><font face=\"verdana\" size=\"1\">Notice: Pareto Security plugin settings have attempted to detect whether or not you are using\n<br />
+            exit( "<meta http-equiv=\"refresh\" content=\"10;URL='https://" . htmlspecialchars( $this->get_server_name(), ENT_QUOTES, 'UTF-8' ) . "'\" />\n<br />\n<br />\n<br />\n<center><font face=\"verdana\" size=\"1\">Notice: Pareto Security plugin settings have attempted to detect whether or not you are using\n<br />
                                                                                                                                                                                     TorBrowser/TAILS. This has resulted in the request timing out. This website restricts users from\n<br />
                                                                                                                                                                                     using certain functions via the TOR network. If you are not using the TOR network, please try\n<br>
                                                                                                                                                                                     again shortly.</font></center>" );

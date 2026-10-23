@@ -20,6 +20,8 @@ class Logjam_Filter {
      * @return bool True on success or false on failure
      */    
     public static function logjam_check( $input = '' ) {
+        if ( ! is_string( $input ) ) return false;
+        if ( strlen( $input ) > 16384 ) $input = substr( $input, 0, 16384 );
         # Attempts to exploit CVE-2021-44228
         # Standard
         $triggers = 'ldap|rmi|dns|nis|iiop|corba|nds|http';

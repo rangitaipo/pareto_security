@@ -33,6 +33,7 @@ class pareto_setup {
     public $settings_field    = 'pareto_security_settings_options';
     public $ip_hash_list      = 'pareto_security_ip_flood_list';
     public $_trim_log_entry   = 450;
+    public $_max_scan_length  = 16384;
     public $_time_offset;
 	public $_adv_mode  = 0;
 	public $_advanced_mode = 0;

@@ -3,7 +3,9 @@ if ( class_exists( "pareto_functions" ) ):
     class pareto_settings extends pareto_functions {
         function __construct() {
             if ( false !== $this->is_wp() ) {
-                $this->time_zone = date_default_timezone_get() . get_option( 'gmt_offset' );
+                $gmt_offset = get_option( 'gmt_offset' );
+                if ( !is_scalar( $gmt_offset ) ) $gmt_offset = '';
+                $this->time_zone = date_default_timezone_get() . $gmt_offset;
                 define( 'PARETO_DIR', plugin_dir_path( __FILE__ ) );
                 define( 'PARETO_URL', plugin_dir_url( __FILE__ ) );
                 
@@ -40,6 +42,7 @@ if ( class_exists( "pareto_functions" ) ):
         function kickoff() {
             $this->settings_field = 'pareto_security_settings_options';
             $this->options = get_option( $this->settings_field );
+            if ( !is_array( $this->options ) ) $this->options = array();
             if ( empty( $this->options ) ) {
                 update_option( $this->settings_field, array( // set defaults
                      'advanced_mode' => 0,
@@ -52,8 +55,10 @@ if ( class_exists( "pareto_functions" ) ):
                      'silent_mode' => 0
                 ) );
                 $this->options = get_option( $this->settings_field );
+                if ( !is_array( $this->options ) ) $this->options = array();
             }
             
+            if ( !is_array( $this->options ) ) $this->options = array();
             $this->options[ 'ban_mode' ]            = ( false !== $this->check_settings( 'ban_mode' ) ) ? ( int ) $this->options[ 'ban_mode' ] : 0;
             $this->options[ 'email_report' ]        = ( false !== $this->check_settings( 'email_report' ) ) ? ( int ) $this->options[ 'email_report' ] : 0;
             $this->options[ 'advanced_mode' ]       = ( false !== $this->check_settings( 'advanced_mode' ) ) ? ( int ) $this->options[ 'advanced_mode' ] : 0;
@@ -76,11 +81,13 @@ if ( class_exists( "pareto_functions" ) ):
                 $this->page_id        = $this->_textdomain;
                 $this->lockdown_status = $this->lockdown_mode( $this->logs ); //( bool ) $this->get_field_value( $this->lockdown, 'lockdown_mode' );
                 
-                if ( isset( $_SERVER[ 'REQUEST_METHOD' ] ) && !empty( $_SERVER['REQUEST_METHOD'] ) && $this->cmpstr( $_SERVER[ 'REQUEST_METHOD' ], 'POST' ) ) {
+                $is_plugin_post = ( isset( $_POST[ 'option_page' ] ) && is_string( $_POST[ 'option_page' ] ) && $this->cmpstr( $_POST[ 'option_page' ], $this->settings_field ) )
+                    || ( isset( $_POST[ 'save_options' ] ) && isset( $_POST[ $this->settings_field ] ) );
+                if ( isset( $_SERVER[ 'REQUEST_METHOD' ] ) && !empty( $_SERVER['REQUEST_METHOD'] ) && $this->cmpstr( $_SERVER[ 'REQUEST_METHOD' ], 'POST' ) && false !== $is_plugin_post ) {
                     check_admin_referer( $this->settings_field . '-options' );
                     # localise POST
                     $this_post = $_POST;
-                    if ( isset( $this_post[ 'save_options' ] ) && $this->cmpstr( strtolower( $this_post[ 'save_options' ] ), 'save options' ) ) {
+                    if ( isset( $this_post[ 'save_options' ] ) && is_string( $this_post[ 'save_options' ] ) && $this->cmpstr( strtolower( $this_post[ 'save_options' ] ), 'save options' ) && isset( $this_post[ $this->settings_field ] ) && is_array( $this_post[ $this->settings_field ] ) ) {
                         if ( isset( $this_post[ $this->settings_field ][ "safe_list" ] ) ) {
                             $this_post[ $this->settings_field ][ "safe_list" ] = $this->host_check( $this_post[ $this->settings_field ][ "safe_list" ] );
                         }
@@ -123,7 +130,7 @@ if ( class_exists( "pareto_functions" ) ):
                         #     'silent_mode' => $this_post[ $this->settings_field ][ "silent_mode" ]
                         #) );                        
                     }
-                    if ( isset( $this_post[ 'save_options' ] ) && $this->cmpstr( strtolower( $this_post[ 'save_options' ] ), 'x' ) ) {
+                    if ( isset( $this_post[ 'save_options' ] ) && is_string( $this_post[ 'save_options' ] ) && $this->cmpstr( strtolower( $this_post[ 'save_options' ] ), 'x' ) ) {
                         # Do logs
                         $ulid = array();
                         foreach( $this_post as $key => $val ) {
@@ -131,7 +138,7 @@ if ( class_exists( "pareto_functions" ) ):
                         }
                         $ulid_shorthash = array();
                         foreach ( $ulid as $key => $val ) {
-                            if ( !empty( $val ) ) {
+                            if ( !empty( $val ) && isset( $this_post[ $val ] ) && is_string( $this_post[ $val ] ) ) {
                                 $this_val = 'ulid_check_' . substr( $this_post[ $val ], 0, 6 );
                                 if ( isset( $this_post[ $this_val ] ) && $this->cmpstr( 'on', $this_post[ $this_val ] ) ) {
                                     $shahash = preg_replace( "/[^a-f0-9]/i", '', $this_post[ $val ] );
@@ -252,10 +259,12 @@ if ( class_exists( "pareto_functions" ) ):
          * @return void
          **/
         function log_pop( $ulid ) {
-            $get_logs = $this->logs;
+            $get_logs = is_array( $this->logs ) ? $this->logs : array();
             foreach ( $ulid as $ukey => $hash ) {
                 foreach( $get_logs as $key => $val ) {
+                    if ( !is_string( $val ) ) continue;
                     $this_log = explode( ' ', $val );
+                    $this_log = array_pad( $this_log, 7, '' );
                     if ( isset( $this_log[ 6 ] ) && $this->cmpstr( sha1( $this_log[ 6 ] ), $hash ) ) {
                         $ip = $this_log[ 2 ];
                         if ( false !== $this->check_ip( $ip, true ) ) {
@@ -309,6 +318,7 @@ if ( class_exists( "pareto_functions" ) ):
          **/
         function update_logfile( $logfile = array() ) {
             $tmp_logfile = array();
+            if ( !is_array( $this->logs ) ) $this->logs = array();
             if ( empty( $this->logs ) ) {
                 update_option( PARETO_LOG_LIST, array(
                      0 => SETTINGS_INSTALL_LOG ) );
@@ -435,7 +445,7 @@ if ( class_exists( "pareto_functions" ) ):
         <div class="wrap">
             <table style="text-align: left;">
                 <tr>
-                    <td><img src="<?php echo plugins_url( 'pareto-security/img/icon.png' ); ?>">
+                    <td><img src="<?php echo esc_url( plugins_url( 'pareto-security/img/icon.png' ) ); ?>">
                     </td>
                     <td><h1><?php echo esc_html( $title ); ?></h1></td>
                 </tr>
@@ -461,7 +471,7 @@ if ( class_exists( "pareto_functions" ) ):
                 $('.if-js-closed').removeClass('if-js-closed').addClass('closed');
                 // postboxes setup
                 postboxes.add_postbox_toggles('<?php
-            echo $this->pagehook;
+            echo esc_js( $this->pagehook );
 ?>');
             });
             //]]>
@@ -515,17 +525,17 @@ if ( class_exists( "pareto_functions" ) ):
                            ( false !== getenv( 'HTTPS' ) && array_key_exists( 'HTTPS', getenv() ) && $this->cmpstr( "on", getenv( "HTTPS" ) ) ) ) ? true : false;
             $http      = ( false !== $is_https ) ? 'https://' : 'http://';
             $url       = str_replace( 'www.', '', $this->get_http_host() );
-            $hsts_url  = 'https://hstspreload.org/?domain=' . $url;
-            $hsts_link = '<a title="Register your domain with Google Chromes preload list" target="_blank" href="' . $hsts_url . '">' . $hsts_url . '</a>';
+            $hsts_url  = 'https://hstspreload.org/?domain=' . rawurlencode( $url );
+            $hsts_link = '<a title="Register your domain with Google Chromes preload list" target="_blank" href="' . esc_url( $hsts_url ) . '">' . esc_html( $hsts_url ) . '</a>';
 ?>
            <table style="text-align: left;">
                 <tr>
                     <td><b>Status:</b> ( <?php echo ( ( false === ( bool ) $this->_adv_mode ) ? esc_html( 'To enable, set to Advanced Mode above', $this->_textdomain ) : esc_html( 'Enabled', $this->_textdomain ) ); ?> )
                     <ol>
                         <li><?php echo esc_html( 'List every domain name associated with your website here (including subdomains).', $this->_textdomain ); ?></li>
-                        <li><?php echo _e( 'One domain name per line: (i.e ' . $this->get_http_host() . ' - without <code>' . $http . '</code> scheme/protocol and double forward slashes)', $this->_textdomain ) ?></li>
-                           <textarea <?php echo ( false === ( bool ) $this->_adv_mode ) ? esc_html( 'disabled', $this->_textdomain ) : ''; ?> name="<?php echo $this->get_field_name( 'safe_list', $this->_textdomain ); ?>" id="<?php echo $this->get_field_name( 'safe_list' ); ?>" rows="3" cols="30"><?php echo $this->options[ 'safe_list' ]; ?></textarea>
-                        <?php if ( false !== $is_https ) ?><li><?php echo _e( 'Register your domain with Google Chromes preload list ' . $hsts_link, $this->_textdomain ); ?></li>
+                        <li><?php echo esc_html( 'One domain name per line: (i.e ' . $this->get_http_host() . ' - without ' ); ?><code><?php echo esc_html( $http ); ?></code><?php echo esc_html( ' scheme/protocol and double forward slashes)' ); ?></li>
+                           <textarea <?php echo ( false === ( bool ) $this->_adv_mode ) ? 'disabled' : ''; ?> name="<?php echo esc_attr( $this->get_field_name( 'safe_list' ) ); ?>" id="<?php echo esc_attr( $this->get_field_id( 'safe_list' ) ); ?>" rows="3" cols="30"><?php echo esc_textarea( isset( $this->options[ 'safe_list' ] ) ? $this->options[ 'safe_list' ] : '' ); ?></textarea>
+                        <?php if ( false !== $is_https ) { ?><li><?php echo esc_html( 'Register your domain with Google Chromes preload list ' ); ?><?php echo $hsts_link; ?></li><?php } ?>
                    </ol></td>
                 </tr>
             </table>
@@ -548,7 +558,7 @@ if ( class_exists( "pareto_functions" ) ):
 ?>
            <table style="text-align: left;">
                 <tr>
-                    <td><strong><?php echo esc_html( 'Version:', $this->_textdomain ); ?></strong> <?php echo self::PARETO_VERSION; ?> <?php echo '&middot;'; ?> <strong><?php esc_html( 'Released:', $this->_textdomain ); ?></strong><?php echo PARETO_RELEASE_DATE; ?> ( <?php echo $this->time_zone; ?> )</td>
+                    <td><strong><?php echo esc_html( 'Version:', $this->_textdomain ); ?></strong> <?php echo esc_html( self::PARETO_VERSION ); ?> <?php echo '&middot;'; ?> <strong><?php esc_html( 'Released:', $this->_textdomain ); ?></strong><?php echo esc_html( PARETO_RELEASE_DATE ); ?> ( <?php echo esc_html( $this->time_zone ); ?> )</td>
                     <td><strong><?php echo esc_html( 'Author:', $this->_textdomain ); ?></strong> <a title="Authors Twitter Account" target="_blank" href="https://twitter.com/te_taipo">@te_taipo</a></td>
                     <td><strong><?php echo esc_html( 'Web:', $this->_textdomain ); ?></strong> <a title="Authors Website" target="_blank" href="https://hokioisecurity.com">https://hokioisecurity.com</a></td>
                     <td><strong><?php echo esc_html( 'Email:', $this->_textdomain ); ?></strong> pareto-security@hokioisecurity.com</td>
@@ -714,37 +724,38 @@ if ( class_exists( "pareto_functions" ) ):
             $mode     = ( false !== ( bool ) $this->_hard_ban_mode ) ? esc_html( $mode . ' Hard Ban', $this->_textdomain ) . "," : esc_html( $mode, $this->_textdomain );
             $mode     = ( false !== $this->lockdown_status ) ? esc_html( $mode . ' Lockdown', $this->_textdomain ) . "," : esc_html( $mode, $this->_textdomain );
             $ban_type = ( false !== ( bool ) $this->_adv_mode && false !== ( bool ) $this->_hard_ban_mode ) ? esc_html( 'Low, Medium and High severity requests added to banned IP list', $this->_textdomain ) : esc_html( 'Medium and High severity requests added to banned IP list', $this->_textdomain ) . ",";
-            $is_nginx = ( false === strpos( strtolower( $_SERVER[ "SERVER_SOFTWARE" ] ), "nginx" ) ) ? false : true;
+            $server_software = ( isset( $_SERVER[ "SERVER_SOFTWARE" ] ) && is_string( $_SERVER[ "SERVER_SOFTWARE" ] ) ) ? $_SERVER[ "SERVER_SOFTWARE" ] : '';
+            $is_nginx = ( false === strpos( strtolower( $server_software ), "nginx" ) ) ? false : true;
             ?>
     <ul>
         <li><?php echo esc_html( '+ Status:', $this->_textdomain ); ?> <i><?php echo $mode; ?></i></li>
-        <li><?php echo esc_html( '+ Server:', $this->_textdomain ); ?> <?php echo ( strlen( $_SERVER[ "SERVER_SOFTWARE" ] ) > 14 ) ? trim( substr( $_SERVER[ "SERVER_SOFTWARE" ], 0, 14 ) ) . "..." : $_SERVER[ "SERVER_SOFTWARE" ]; ?></li>
+        <li><?php echo esc_html( '+ Server:', $this->_textdomain ); ?> <?php echo esc_html( ( strlen( $server_software ) > 14 ) ? trim( substr( $server_software, 0, 14 ) ) . "..." : $server_software ); ?></li>
         <li><?php echo esc_html( '+ Mode:', $this->_textdomain ); ?> <?php echo ( false === ( bool ) $this->_silent_mode ) ? _e( "Normal Mode", $this->_textdomain ) : _e( "Stealth Mode", $this->_textdomain ); ?></li>
         <?php
             if ( false !== $this->htapath() && false === $this->is_iis() ) {
         ?>
-        <?php if ( false === $is_nginx ) { ?><li><?php echo _e( '+ Your <code>.htaccess</code> is configured correctly in <code>' . $this->get_dir() . '</code>', $this->_textdomain ); ?></li>
-        <li><?php echo _e( '+ There ' . ( ( $this->cmpstr( $this->ip_count, 1 ) ) ? 'is' : 'are' ) . ' currently [ ' . ( empty( $this->ip_count ) ? 0 : $this->ip_count ) . ' ] unique IP addresses banned by Pareto Security', $this->_textdomain ); ?></li>
+        <?php if ( false === $is_nginx ) { ?><li><?php echo esc_html( '+ Your .htaccess is configured correctly in ' ); ?><code><?php echo esc_html( $this->get_dir() ); ?></code></li>
+        <li><?php echo esc_html( '+ There ' . ( ( $this->cmpstr( $this->ip_count, 1 ) ) ? 'is' : 'are' ) . ' currently [ ' . ( empty( $this->ip_count ) ? 0 : $this->ip_count ) . ' ] unique IP addresses banned by Pareto Security' ); ?></li>
         <li><?php
               if ( false === ( bool ) $this->_disable_htaccess ) {
                 echo ( false !== ( bool ) $this->_adv_mode ) ? esc_html( '+ Ban Type : Hard Ban. ' . $ban_type, $this->_textdomain ) : esc_html( '+ Ban Type : Soft Ban. ' . $ban_type, $this->_textdomain );
               } else {
-                echo esc_html( '+ Ban Type', $this->_textdomain ); ?> : <?php echo 'Blocking Only. Adding IP addresses to the .htaccess has been disabled, however all attack request are still blocked.'; ?></li>
+                echo esc_html( '+ Ban Type', $this->_textdomain ); ?> : <?php echo esc_html( 'Blocking Only. Adding IP addresses to the .htaccess has been disabled, however all attack request are still blocked.' ); ?></li>
         <?php } ?>
         <?php } else { ?>
-        <?php if ( false === $is_nginx ) { ?><li><?php echo _e( '- Your <code>.htaccess</code> file cannot be written to in <code>' . $this->get_dir() . '</code> Pareto Security will still soft ban attack vectors.', $this->_textdomain ); ?></li><?php } ?>
-        <?php if ( false !== $is_nginx ) { ?><li><?php echo _e( '+ NGINX does not use .htaccess to ban IP addresses. Pareto Security will still block all attack vectors.', $this->_textdomain ); ?></li><?php } ?>
-        <?php if ( false === $is_nginx ) { ?><li><?php echo esc_html( '- Hard Ban:', $this->_textdomain ); ?> <?php echo $ban_type; ?></li><?php } ?>
+        <?php if ( false === $is_nginx ) { ?><li><?php echo esc_html( '- Your .htaccess file cannot be written to in ' ); ?><code><?php echo esc_html( $this->get_dir() ); ?></code><?php echo esc_html( ' Pareto Security will still soft ban attack vectors.' ); ?></li><?php } ?>
+        <?php if ( false !== $is_nginx ) { ?><li><?php echo esc_html( '+ NGINX does not use .htaccess to ban IP addresses. Pareto Security will still block all attack vectors.' ); ?></li><?php } ?>
+        <?php if ( false === $is_nginx ) { ?><li><?php echo esc_html( '- Hard Ban:' ); ?> <?php echo $ban_type; ?></li><?php } ?>
         <?php } ?>
         <?php } else { ?>
-        <li><?php if ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT !== false ) { echo _e( '+ DISALLOW_FILE_EDIT is set to true, preventing writing to .htaccess', $this->_textdomain ); ?>
+        <li><?php if ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT !== false ) { echo esc_html( '+ DISALLOW_FILE_EDIT is set to true, preventing writing to .htaccess' ); ?>
         <?php }
         } ?>
-        <li><?php echo ( ( version_compare( phpversion(), '7.4', '>=' ) ) ? _e( '+ ', $this->_textdomain ) : _e( '- ', $this->_textdomain ) ) . _e( 'Your server is running PHP version ' . substr( phpversion(), 0, 3 ), $this->_textdomain ); ?>
-        <?php echo ( version_compare( phpversion(), '7.4', '>=' ) ) ? _e( ' &#x2713&#x2713&#x2713; ', $this->_textdomain ) : _e( ' <b>WARNING:</b> This version is insecure. Contact your webhost to upgrade to at least PHP 7.4', $this->_textdomain ); ?></li>
-        <li>+ Admin IP Address: <i><?php echo $this->_admin_ip; ?></i></li>
-        <?php if ( false !== $this->is_cf( $this->_admin_ip ) || false !== $this->is_cf( $this->_server_ip ) ) { ?><li>+ CloudFlare Detected: It is recommended that you disable ip banning below.</li><?php } ?>
-        <?php if ( false !== $this->is_qc( $this->_admin_ip ) || false !== $this->is_qc( $this->_server_ip ) ) { ?><li>+ Quic Cloud Detected: It is recommended that you disable ip banning below</li><?php } ?>
+        <li><?php echo esc_html( ( ( version_compare( phpversion(), '8.2', '>=' ) ) ? '+ ' : '- ' ) . 'Your server is running PHP version ' . substr( phpversion(), 0, 3 ) ); ?>
+        <?php echo ( version_compare( phpversion(), '8.2', '>=' ) ) ? ' &#x2713&#x2713&#x2713; ' : esc_html( ' WARNING: This version is insecure. Contact your webhost to upgrade to at least PHP 8.2' ); ?></li>
+        <li>+ Admin IP Address: <i><?php echo esc_html( $this->_admin_ip ); ?></i></li>
+        <?php if ( false !== $this->is_cf( $this->getREMOTE_ADDR() ) || false !== $this->is_cf( $this->get_serverip() ) ) { ?><li>+ CloudFlare Detected: It is recommended that you disable ip banning below.</li><?php } ?>
+        <?php if ( false !== $this->is_qc( $this->getREMOTE_ADDR() ) || false !== $this->is_qc( $this->get_serverip() ) ) { ?><li>+ Quic Cloud Detected: It is recommended that you disable ip banning below</li><?php } ?>
         <li><?php echo _e( '+ <a title="Smoke tests are performed shortly after Pareto Security is updated. If the smoke test site returns an error, please check again in a few days." target="_blank" href="https://plugintests.com/plugins/wporg/pareto-security/' . self::PARETO_VERSION . '">Click here</a> to view a smoke test was performed on Pareto Security version ' . self::PARETO_VERSION, $this->_textdomain ); ?></li>
     </ul>
 
@@ -774,13 +785,14 @@ if ( class_exists( "pareto_functions" ) ):
 <?php
         $mylogs     = array();
         $mylogs_fin = array();
-        $mylogs     = $this->logs;
+        $mylogs     = is_array( $this->logs ) ? $this->logs : array();
         $i          = 0;
         $text_color = "#e68735";       
         while ( $i <= $this->_log_total ) {
-            if ( isset( $mylogs[ $i ] ) ) {
+            if ( isset( $mylogs[ $i ] ) && is_string( $mylogs[ $i ] ) ) {
                 $row_colour = ''; // = ( $i % 2 == 0 ) ? "#F3F3F3" : "#FFFFFF";
                 $req_var    = explode( " ", $mylogs[ $i ] );
+                $req_var    = array_pad( $req_var, 7, '' );
 
                 if ( $this->cmpstr( strtolower( $req_var[ 1 ] ), "low" ) ) {
                     $text_color = "#517ecf";
@@ -811,6 +823,7 @@ if ( class_exists( "pareto_functions" ) ):
                                       ( false !== strpos( $this_timestamp, 'AM' ) ? substr( $this_timestamp, 0, strpos( $this_timestamp, 'AM' ) ) . ' AM' : substr( $this_timestamp, 0, strpos( $this_timestamp, 'PM' ) ) . ' PM' ) : $this_timestamp ;
                 }
                 $attack_string = str_replace( '%20', " ", preg_replace( "/[\n]/i", "", stripslashes( $req_var[ 5 ] ) ) );
+                $attack_string = $this->redact_query_secrets( $attack_string );
                 $attack_string = ( strlen( $attack_string ) > $this->_trim_log_entry ) ? substr( $attack_string, 0, ( $this->_trim_log_entry - 1 ) ) . "..." : $attack_string;
                 $t = strtolower( $this->url_decoder( $attack_string ) );
                 preg_match_all( "/exec|svg|javascript|script|alert|prompt|onload|onerror|fromcharcode|img src|iframe|vbscript|msgbox/i", $t, $matches );
