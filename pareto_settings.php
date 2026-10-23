@@ -751,8 +751,8 @@ if ( class_exists( "pareto_functions" ) ):
         <li><?php if ( defined( 'DISALLOW_FILE_EDIT' ) && DISALLOW_FILE_EDIT !== false ) { echo esc_html( '+ DISALLOW_FILE_EDIT is set to true, preventing writing to .htaccess' ); ?>
         <?php }
         } ?>
-        <li><?php echo esc_html( ( ( version_compare( phpversion(), '8.2', '>=' ) ) ? '+ ' : '- ' ) . 'Your server is running PHP version ' . substr( phpversion(), 0, 3 ) ); ?>
-        <?php echo ( version_compare( phpversion(), '8.2', '>=' ) ) ? ' &#x2713&#x2713&#x2713; ' : esc_html( ' WARNING: This version is insecure. Contact your webhost to upgrade to at least PHP 8.2' ); ?></li>
+        <li><?php echo esc_html( ( ( version_compare( phpversion(), '8.2.35', '>=' ) ) ? '+ ' : '- ' ) . 'Your server is running PHP version ' . substr( phpversion(), 0, 3 ) ); ?>
+        <?php echo ( version_compare( phpversion(), '8.2.35', '>=' ) ) ? ' &#x2713&#x2713&#x2713; ' : esc_html( ' WARNING: This version is insecure. Contact your webhost to upgrade to at least PHP 8.2.35' ); ?></li>
         <li>+ Admin IP Address: <i><?php echo esc_html( $this->_admin_ip ); ?></i></li>
         <?php if ( false !== $this->is_cf( $this->getREMOTE_ADDR() ) || false !== $this->is_cf( $this->get_serverip() ) ) { ?><li>+ CloudFlare Detected: It is recommended that you disable ip banning below.</li><?php } ?>
         <?php if ( false !== $this->is_qc( $this->getREMOTE_ADDR() ) || false !== $this->is_qc( $this->get_serverip() ) ) { ?><li>+ Quic Cloud Detected: It is recommended that you disable ip banning below</li><?php } ?>

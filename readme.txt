@@ -4,7 +4,7 @@ Tags: security, hack, WAF, firewall, vulnerability
 Contact link: https://taipo.github.io/contact/
 Requires at least: 5.2.0
 Tested up to: 7.1.3
-Requires PHP: 8.2
+Requires PHP: 8.2.35
 Stable tag: 3.3.3
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html

@@ -6,7 +6,7 @@ Description: Core Security - Protection from a range of attacks against Content 
 Author: Te_Taipo
 Version: 3.3.3
 Requires at least: 5.2.0
-Requires PHP: 8.2
+Requires PHP: 8.2.35
 Author URI: https://hokioisecurity.com
 Donations via: https://hokioisecurity.com/donations/
 */
@@ -27,6 +27,16 @@ Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
 See: See http://www.gnu.org/licenses/gpl-3.0.txt
 */
+
+# Refuse to load on anything older than the supported runtime.
+if (version_compare(PHP_VERSION, '8.2.35', '<')) {
+    if (function_exists('add_action')) {
+        add_action('admin_notices', function () {
+            echo '<div class="notice notice-error"><p>Pareto Security requires PHP 8.2.35 or later.</p></div>';
+        });
+    }
+    return;
+}
 
 if (defined('WP_PLUGIN_DIR') && false !== function_exists('is_admin')) {
     add_action('plugins_loaded', 'pareto_security_init');
