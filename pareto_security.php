@@ -5,7 +5,8 @@ Plugin URI: https://hokioisecurity.com/?p=17
 Description: Core Security - Protection from a range of attacks against Content Management Systems (CMS)
 Author: Te_Taipo
 Version: 3.3.3
-Requirements: Requires at least PHP version 5.6.0
+Requires at least: 5.2.0
+Requires PHP: 8.2
 Author URI: https://hokioisecurity.com
 Donations via: https://hokioisecurity.com/donations/
 */
