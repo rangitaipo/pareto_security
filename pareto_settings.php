@@ -291,7 +291,7 @@ if ( class_exists( "pareto_functions" ) ):
          * @param   $string = string,
          *          $array = array,
          *          $makebool = boolean
-         * @return void
+         * @return array|bool
          **/
         function find_in_array( $string = '', $array = array(), $makebool = false ) {       
             foreach ( $array as $key => $value ) {
@@ -422,12 +422,9 @@ if ( class_exists( "pareto_functions" ) ):
          * @return string
          **/
         function cleanRequestInput( $input = '' ) {
-            if ( function_exists( 'filter_var' ) && defined( 'FILTER_SANITIZE_STRING' ) ) {
-                if ( false !== ( bool ) filter_var( $input, FILTER_SANITIZE_STRING ) ) {
-                    return $input;
-                } else
-                    return false;
-            }
+            # FILTER_SANITIZE_STRING is deprecated as of PHP 8.1.
+            # Keep the original contract (string in, string or false out).
+            return is_string( $input ) ? $input : false;
         }
         /**
          * @return void

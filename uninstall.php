@@ -5,7 +5,7 @@
 require_once ('pareto_functions.php');
 $ParetoSecurity = new pareto_functions();
 if (!defined('WP_UNINSTALL_PLUGIN') || !WP_UNINSTALL_PLUGIN || dirname(WP_UNINSTALL_PLUGIN) != dirname(plugin_basename(__FILE__))) {
-    $ParetoSecurity->send444();
+    $ParetoSecurity->send403();
 }
 if (!is_user_logged_in()) {
     wp_die('You must be logged in to run this script.');

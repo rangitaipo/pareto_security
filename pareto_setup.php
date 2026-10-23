@@ -1,6 +1,6 @@
 <?php
 class pareto_setup {
-    const PARETO_VERSION     = '3.3.2';
+    const PARETO_VERSION     = '3.3.3';
     const CF_URL_IPV4        = 'https://www.cloudflare.com/ips-v4';
     const CF_URL_IPV6        = 'https://www.cloudflare.com/ips-v6';
     const QC_URL             = 'https://www.quic.cloud/ips';
@@ -35,6 +35,7 @@ class pareto_setup {
     public $_trim_log_entry   = 450;
     public $_time_offset;
 	public $_adv_mode  = 0;
+	public $_advanced_mode = 0;
 	public $_safe_host = '';
 	public $_domain_list;
 	public $_client_ip;
@@ -49,7 +50,6 @@ class pareto_setup {
         'hard_ban_mode'                  => 0,
         'safe_list'                  => '',
         'email_report'                  => 0,
-        'safe_list'                  => '',
         'admin_ip'                  => '',
         'tor_block'                  => 0,
         'disable_htaccess'                  => 0,
